@@ -20,8 +20,8 @@ export class ModuleRunner {
   }
 
   async handleRequest(request: ToolRequest): Promise<unknown> {
-    // Check dynamic tools first (format: "toolName")
-    const dynamicTool = this.dynamicTools.get(`${request.module}_${request.method}`);
+    // Check dynamic tools first — stored by name only
+    const dynamicTool = this.dynamicTools.get(request.method);
     if (dynamicTool) {
       return dynamicTool.handler(request.args);
     }

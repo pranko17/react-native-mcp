@@ -18,6 +18,12 @@ export async function createServer(config?: ServerConfig): Promise<void> {
   bridge.onStateRemove((key) => {
     mcpServer.removeState(key);
   });
+  bridge.onToolRegister((module, tool) => {
+    mcpServer.addDynamicTool(module, tool.name, tool.description);
+  });
+  bridge.onToolUnregister((module, toolName) => {
+    mcpServer.removeDynamicTool(module, toolName);
+  });
 
   await bridge.start();
   process.stderr.write(`react-native-mcp bridge listening on port ${port}\n`);

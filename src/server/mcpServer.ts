@@ -7,6 +7,7 @@ import { type ModuleDescriptor } from '@/shared/protocol';
 import { type Bridge } from './bridge';
 
 export class McpServerWrapper {
+  private dynamicTools = new Map<string, { description: string; module: string }>();
   private mcp: McpServer;
   private modules: ModuleDescriptor[] = [];
   private stateStore = new Map<string, unknown>();
@@ -15,6 +16,14 @@ export class McpServerWrapper {
     this.mcp = new McpServer({ name: 'react-native-mcp', version: '0.1.0' });
 
     this.registerTools();
+  }
+
+  addDynamicTool(module: string, name: string, description: string): void {
+    this.dynamicTools.set(`${module}_${name}`, { description, module });
+  }
+
+  removeDynamicTool(module: string, name: string): void {
+    this.dynamicTools.delete(`${module}_${name}`);
   }
 
   setModules(modules: ModuleDescriptor[]): void {
@@ -59,42 +68,81 @@ export class McpServerWrapper {
           };
         }
 
-        const parts = tool.split('_');
-        if (parts.length < 2) {
-          return {
-            content: [
-              {
-                text: JSON.stringify({
-                  error: `Invalid tool name "${tool}". Use "module_method" format.`,
-                }),
-                type: 'text' as const,
-              },
-            ],
-          };
+        // Find the module by matching prefix: "navigation_navigate" → module "navigation", method "navigate"
+        let mod: (typeof this.modules)[0] | undefined;
+        let moduleName = '';
+        let methodName = '';
+
+        for (const m of this.modules) {
+          if (tool.startsWith(`${m.name}_`)) {
+            mod = m;
+            moduleName = m.name;
+            methodName = tool.slice(m.name.length + 1);
+            break;
+          }
         }
 
-        // Find the module and method
-        const moduleName = parts[0]!;
-        const methodName = parts.slice(1).join('_');
-
-        const mod = this.modules.find((m) => {
-          return m.name === moduleName;
-        });
+        // If no module matched, check for dynamic tool prefix or split by first underscore
         if (!mod) {
-          return {
-            content: [
-              {
-                text: JSON.stringify({
-                  error: `Module "${moduleName}" not found. Available: ${this.modules
-                    .map((m) => {
-                      return m.name;
-                    })
-                    .join(', ')}`,
-                }),
-                type: 'text' as const,
-              },
-            ],
-          };
+          if (tool.startsWith('_dynamic_')) {
+            moduleName = '_dynamic';
+            methodName = tool.slice('_dynamic_'.length);
+          } else {
+            const idx = tool.indexOf('_');
+            if (idx <= 0) {
+              return {
+                content: [
+                  {
+                    text: JSON.stringify({
+                      error: `Invalid tool name "${tool}". Use "module_method" format.`,
+                    }),
+                    type: 'text' as const,
+                  },
+                ],
+              };
+            }
+            moduleName = tool.slice(0, idx);
+            methodName = tool.slice(idx + 1);
+          }
+        }
+        let parsedArgs: Record<string, unknown> = {};
+        if (args) {
+          try {
+            parsedArgs = JSON.parse(args) as Record<string, unknown>;
+          } catch {
+            return {
+              content: [
+                { text: JSON.stringify({ error: 'Invalid JSON in args' }), type: 'text' as const },
+              ],
+            };
+          }
+        }
+
+        if (!mod) {
+          // No module matched — try as dynamic tool via bridge
+          try {
+            const result = await this.bridge.call(moduleName, methodName, parsedArgs);
+            return {
+              content: [{ text: JSON.stringify(result, null, 2), type: 'text' as const }],
+            };
+          } catch {
+            const allModules = this.modules
+              .map((m) => {
+                return m.name;
+              })
+              .join(', ');
+            const dynNames = [...this.dynamicTools.keys()].join(', ');
+            return {
+              content: [
+                {
+                  text: JSON.stringify({
+                    error: `Tool "${tool}" not found. Modules: ${allModules}. Dynamic: ${dynNames || 'none'}`,
+                  }),
+                  type: 'text' as const,
+                },
+              ],
+            };
+          }
         }
 
         const toolDef = mod.tools.find((t) => {
@@ -117,18 +165,6 @@ export class McpServerWrapper {
           };
         }
 
-        let parsedArgs: Record<string, unknown> = {};
-        if (args) {
-          try {
-            parsedArgs = JSON.parse(args) as Record<string, unknown>;
-          } catch {
-            return {
-              content: [
-                { text: JSON.stringify({ error: 'Invalid JSON in args' }), type: 'text' as const },
-              ],
-            };
-          }
-        }
         const result = await this.bridge.call(moduleName, methodName, parsedArgs, toolDef.timeout);
         return {
           content: [{ text: JSON.stringify(result, null, 2), type: 'text' as const }],
@@ -154,7 +190,7 @@ export class McpServerWrapper {
           };
         }
 
-        const tools = this.modules.map((mod) => {
+        const moduleTools = this.modules.map((mod) => {
           return {
             module: mod.name,
             tools: mod.tools.map((t) => {
@@ -167,8 +203,31 @@ export class McpServerWrapper {
           };
         });
 
+        // Add dynamic tools (from useMcpTool hooks)
+        if (this.dynamicTools.size > 0) {
+          const dynamicByModule = new Map<
+            string,
+            Array<{ description: string; name: string; inputSchema?: Record<string, unknown> }>
+          >();
+          for (const [fullName, info] of this.dynamicTools) {
+            const existing = dynamicByModule.get(info.module) ?? [];
+            existing.push({
+              description: info.description,
+              inputSchema: undefined,
+              name: fullName,
+            });
+            dynamicByModule.set(info.module, existing);
+          }
+          for (const [module, dynTools] of dynamicByModule) {
+            moduleTools.push({
+              module: `${module} (dynamic)`,
+              tools: dynTools as (typeof moduleTools)[0]['tools'],
+            });
+          }
+        }
+
         return {
-          content: [{ text: JSON.stringify(tools, null, 2), type: 'text' as const }],
+          content: [{ text: JSON.stringify(moduleTools, null, 2), type: 'text' as const }],
         };
       }
     );

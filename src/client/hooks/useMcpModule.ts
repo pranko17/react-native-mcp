@@ -1,0 +1,21 @@
+import { useEffect, useMemo, type DependencyList } from 'react';
+
+import { McpClient } from '@/client/core/McpClient';
+import { type McpModule } from '@/client/models/types';
+
+const noop = () => {};
+
+export const useMcpModule: (factory: () => McpModule, deps: DependencyList) => void =
+  typeof __DEV__ !== 'undefined' && __DEV__
+    ? (factory: () => McpModule, deps: DependencyList) => {
+        const client = useMemo(() => {
+          return McpClient.getInstance();
+        }, []);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        const module = useMemo(factory, deps);
+
+        useEffect(() => {
+          client.registerModule(module);
+        }, [client, module]);
+      }
+    : noop;

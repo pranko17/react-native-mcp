@@ -1,5 +1,12 @@
 // Client (safe for React Native)
-export { McpContext, McpProvider, useMcpState, useMcpTool } from './client/index';
+export {
+  McpClient,
+  McpContext,
+  McpProvider,
+  useMcpModule,
+  useMcpState,
+  useMcpTool,
+} from './client/index';
 export {
   type McpContextValue,
   type McpModule,

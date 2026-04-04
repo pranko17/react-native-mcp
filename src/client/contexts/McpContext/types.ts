@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react';
 
-import { type McpModule, type ToolHandler } from '@/client/models/types';
+import { type ToolHandler } from '@/client/models/types';
 
 export interface McpContextValue {
   registerTool: (name: string, tool: ToolHandler) => void;
@@ -11,6 +11,4 @@ export interface McpContextValue {
 
 export interface McpProviderProps {
   children: ReactNode;
-  modules?: McpModule[];
-  port?: number;
 }

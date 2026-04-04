@@ -4,4 +4,5 @@ export { deviceModule } from './device';
 export { errorsModule } from './errors';
 export { navigationModule } from './navigation';
 export { networkModule } from './network';
+export { reactQueryModule } from './reactQuery';
 export { storageModule } from './storage';

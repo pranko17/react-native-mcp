@@ -22,6 +22,7 @@ export {
   errorsModule,
   navigationModule,
   networkModule,
+  reactQueryModule,
   storageModule,
 } from './modules/index';
 

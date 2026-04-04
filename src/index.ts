@@ -22,6 +22,7 @@ export {
   errorsModule,
   navigationModule,
   networkModule,
+  storageModule,
 } from './modules/index';
 
 // Protocol types

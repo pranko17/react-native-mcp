@@ -15,7 +15,7 @@
     "./server": "./dist/server/index.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && tsc-alias",
     "dev": "tsc --watch",
     "lint": "eslint --ext .ts --ext .tsx ./src",
     "lint:fix": "eslint --ext .ts --ext .tsx ./src --fix",
@@ -39,6 +39,7 @@
     "eslint-plugin-sort-keys-fix": "^1.1.2",
     "eslint-plugin-typescript-sort-keys": "^3.3.0",
     "prettier": "^3.8.1",
+    "tsc-alias": "^1.8.16",
     "typescript": "~5.7.0"
   },
   "peerDependencies": {

@@ -141,11 +141,19 @@ export const componentsModule = (): McpModule => {
       },
       find_all: {
         description:
-          'Find all components matching a query (by testID, name, text, or props presence)',
+          'Find all components matching a query (by testID, name, text, or props presence). Supports within for scoped search.',
         handler: (args) => {
           const rootError = requireRoot();
           if (rootError) return rootError;
-          const root = getFiberRoot()!;
+          let root = getFiberRoot()!;
+
+          if (args.within) {
+            const path = (args.within as string).split('/');
+            for (const segment of path) {
+              root = findInRoot(root, segment);
+              if (!root) return { error: `Parent "${args.within}" not found` };
+            }
+          }
 
           const query = {
             hasProps: args.hasProps as string[] | undefined,
@@ -171,6 +179,7 @@ export const componentsModule = (): McpModule => {
           name: { description: 'Component name to match', type: 'string' },
           testID: { description: 'testID to match', type: 'string' },
           text: { description: 'Text content to match (substring)', type: 'string' },
+          within: FIND_SCHEMA.within,
         },
       },
       get_children: {

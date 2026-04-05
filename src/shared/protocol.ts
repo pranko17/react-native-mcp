@@ -1,3 +1,9 @@
+/** Separator between module name and tool name in MCP call format */
+export const MODULE_SEPARATOR = '__';
+
+/** Prefix for dynamic tools registered via useMcpTool */
+export const DYNAMIC_PREFIX = `${MODULE_SEPARATOR}dynamic${MODULE_SEPARATOR}`;
+
 // === RN App → Server: при подключении регистрирует модули ===
 
 export interface ModuleToolDescriptor {

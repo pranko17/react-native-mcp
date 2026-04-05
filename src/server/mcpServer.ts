@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
-import { type ModuleDescriptor } from '@/shared/protocol';
+import { DYNAMIC_PREFIX, MODULE_SEPARATOR, type ModuleDescriptor } from '@/shared/protocol';
 
 import { type Bridge } from './bridge';
 
@@ -19,11 +19,11 @@ export class McpServerWrapper {
   }
 
   addDynamicTool(module: string, name: string, description: string): void {
-    this.dynamicTools.set(`${module}_${name}`, { description, module });
+    this.dynamicTools.set(`${module}${MODULE_SEPARATOR}${name}`, { description, module });
   }
 
   removeDynamicTool(module: string, name: string): void {
-    this.dynamicTools.delete(`${module}_${name}`);
+    this.dynamicTools.delete(`${module}${MODULE_SEPARATOR}${name}`);
   }
 
   setModules(modules: ModuleDescriptor[]): void {
@@ -54,7 +54,9 @@ export class McpServerWrapper {
           .describe('Arguments as JSON string (e.g. {"screen": "AUTH_LOGIN_SCREEN"})'),
         tool: z
           .string()
-          .describe('Tool name in format "module_method" (e.g. "navigation_navigate")'),
+          .describe(
+            `Tool name in format "module${MODULE_SEPARATOR}method" (e.g. "navigation${MODULE_SEPARATOR}navigate")`
+          ),
       },
       async ({ args, tool }) => {
         if (!this.bridge.isClientConnected()) {
@@ -68,33 +70,34 @@ export class McpServerWrapper {
           };
         }
 
-        // Find the module by matching prefix: "navigation_navigate" → module "navigation", method "navigate"
+        // Find the module by matching prefix
         let mod: (typeof this.modules)[0] | undefined;
         let moduleName = '';
         let methodName = '';
 
         for (const m of this.modules) {
-          if (tool.startsWith(`${m.name}_`)) {
+          const prefix = `${m.name}${MODULE_SEPARATOR}`;
+          if (tool.startsWith(prefix)) {
             mod = m;
             moduleName = m.name;
-            methodName = tool.slice(m.name.length + 1);
+            methodName = tool.slice(prefix.length);
             break;
           }
         }
 
-        // If no module matched, check for dynamic tool prefix or split by first underscore
+        // If no module matched, check for dynamic tool prefix
         if (!mod) {
-          if (tool.startsWith('_dynamic_')) {
-            moduleName = '_dynamic';
-            methodName = tool.slice('_dynamic_'.length);
+          if (tool.startsWith(DYNAMIC_PREFIX)) {
+            moduleName = `${MODULE_SEPARATOR}dynamic`;
+            methodName = tool.slice(DYNAMIC_PREFIX.length);
           } else {
-            const idx = tool.indexOf('_');
+            const idx = tool.indexOf(MODULE_SEPARATOR);
             if (idx <= 0) {
               return {
                 content: [
                   {
                     text: JSON.stringify({
-                      error: `Invalid tool name "${tool}". Use "module_method" format.`,
+                      error: `Invalid tool name "${tool}". Use "module${MODULE_SEPARATOR}method" format.`,
                     }),
                     type: 'text' as const,
                   },
@@ -102,7 +105,7 @@ export class McpServerWrapper {
               };
             }
             moduleName = tool.slice(0, idx);
-            methodName = tool.slice(idx + 1);
+            methodName = tool.slice(idx + MODULE_SEPARATOR.length);
           }
         }
         let parsedArgs: Record<string, unknown> = {};
@@ -197,7 +200,7 @@ export class McpServerWrapper {
               return {
                 description: t.description,
                 inputSchema: t.inputSchema,
-                name: `${mod.name}_${t.name}`,
+                name: `${mod.name}${MODULE_SEPARATOR}${t.name}`,
               };
             }),
           };

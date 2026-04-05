@@ -1,18 +1,20 @@
+import { type RefObject } from 'react';
+
 import { type McpModule } from '@/client/models/types';
 
 import {
   findAllByQuery,
-  findByName,
   findByMcpId,
+  findByName,
   findByTestID,
   findByText,
   getAvailableMethods,
-  getFiberRoot,
   getComponentName,
+  getFiberRoot,
   getNativeInstance,
-  initFiberRootCapture,
   serializeFiber,
   serializeProps,
+  setRootRef,
 } from './utils';
 
 const DEFAULT_DEPTH = 10;
@@ -33,8 +35,14 @@ const FIND_SCHEMA = {
   },
 };
 
-export const componentsModule = (): McpModule => {
-  initFiberRootCapture();
+interface FiberTreeModuleOptions {
+  rootRef?: RefObject<unknown>;
+}
+
+export const fiberTreeModule = (options?: FiberTreeModuleOptions): McpModule => {
+  if (options?.rootRef) {
+    setRootRef(options.rootRef);
+  }
 
   const findInRoot = (root: ReturnType<typeof getFiberRoot>, segment: string) => {
     if (!root) return null;
@@ -96,7 +104,7 @@ export const componentsModule = (): McpModule => {
   };
 
   return {
-    name: 'components',
+    name: 'fiber_tree',
     tools: {
       call_ref: {
         description:

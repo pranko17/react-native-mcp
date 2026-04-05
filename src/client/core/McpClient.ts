@@ -1,13 +1,46 @@
 import { type McpModule, type ToolHandler } from '@/client/models/types';
 import { McpConnection } from '@/client/utils/connection';
 import { ModuleRunner } from '@/client/utils/moduleRunner';
-import { type ToolRequest } from '@/shared/protocol';
+import { MODULE_SEPARATOR, type ToolRequest } from '@/shared/protocol';
 
 const DEFAULT_PORT = 8347;
-const TAG = '\x1b[35m[react-native-mcp]\x1b[0m';
+const TAG = '\x1b[1;35m[rnmcp]\x1b[0m';
 const ARROW_IN = '\x1b[36m→\x1b[0m';
 const ARROW_OUT = '\x1b[32m←\x1b[0m';
 const CROSS = '\x1b[31m✕\x1b[0m';
+
+const MODULE_COLORS = [
+  '\x1b[1;31m', // bold red
+  '\x1b[1;32m', // bold green
+  '\x1b[1;33m', // bold yellow
+  '\x1b[1;34m', // bold blue
+  '\x1b[1;35m', // bold magenta
+  '\x1b[1;36m', // bold cyan
+  '\x1b[1;91m', // bold bright red
+  '\x1b[1;92m', // bold bright green
+  '\x1b[1;93m', // bold bright yellow
+  '\x1b[1;94m', // bold bright blue
+  '\x1b[1;95m', // bold bright magenta
+  '\x1b[1;96m', // bold bright cyan
+];
+
+const BOLD = '\x1b[1m';
+const RESET = '\x1b[0m';
+const moduleColorMap = new Map<string, string>();
+
+const getModuleColor = (moduleName: string): string => {
+  const existing = moduleColorMap.get(moduleName);
+  if (existing) {
+    return existing;
+  }
+  const color = MODULE_COLORS[moduleColorMap.size % MODULE_COLORS.length]!;
+  moduleColorMap.set(moduleName, color);
+  return color;
+};
+
+const colorModule = (moduleName: string): string => {
+  return `${getModuleColor(moduleName)}${moduleName}${RESET}`;
+};
 
 // Capture original console.log before any module intercepts it
 const originalConsoleLog = console.log.bind(console);
@@ -23,17 +56,23 @@ export class McpClient {
     this.connection = new McpConnection(port);
 
     this.connection.onOpen(() => {
-      this.log('Connected to MCP server');
+      this.log('🚀 Connected to MCP server 🚀');
       this.sendRegistration();
     });
 
     this.connection.onMessage((message: ToolRequest) => {
       if (message.type === 'tool_request') {
-        this.log(`${ARROW_IN} Tool request: ${message.module}.${message.method}`, message.args);
+        this.log(
+          `${ARROW_IN} ${colorModule(message.module)}.${BOLD}${message.method}${RESET}`,
+          message.args
+        );
         this.moduleRunner
           .handleRequest(message)
           .then((result) => {
-            this.log(`${ARROW_OUT} Tool response: ${message.module}.${message.method}`, result);
+            this.log(
+              `${ARROW_OUT} ${colorModule(message.module)}.${BOLD}${message.method}${RESET}`,
+              result
+            );
             this.connection.send({
               id: message.id,
               result,
@@ -41,7 +80,10 @@ export class McpClient {
             });
           })
           .catch((error: Error) => {
-            this.log(`${CROSS} Tool error: ${message.module}.${message.method}`, error.message);
+            this.log(
+              `${CROSS} ${colorModule(message.module)}.${BOLD}${message.method}${RESET}`,
+              error.message
+            );
             this.connection.send({
               error: error.message,
               id: message.id,
@@ -87,7 +129,7 @@ export class McpClient {
   }
 
   registerModule(module: McpModule): void {
-    this.log(`Registering module: ${module.name}`, Object.keys(module.tools));
+    this.log(`Registering module: ${colorModule(module.name)}`, Object.keys(module.tools));
     this.moduleRunner.registerModules([module]);
     this.sendRegistration();
   }
@@ -96,7 +138,7 @@ export class McpClient {
     this.log(
       'Registering modules:',
       modules.map((m) => {
-        return m.name;
+        return colorModule(m.name);
       })
     );
     this.moduleRunner.registerModules(modules);
@@ -104,10 +146,10 @@ export class McpClient {
   }
 
   registerTool(name: string, tool: ToolHandler): void {
-    this.log(`Registering dynamic tool: ${name}`);
+    this.log(`Registering dynamic tool: ${BOLD}${name}${RESET}`);
     this.moduleRunner.registerDynamicTool(name, tool);
     this.connection.send({
-      module: '_dynamic',
+      module: `${MODULE_SEPARATOR}dynamic`,
       tool: {
         description: tool.description,
         inputSchema: tool.inputSchema,
@@ -118,7 +160,7 @@ export class McpClient {
   }
 
   removeState(key: string): void {
-    this.log(`Removing state: ${key}`);
+    this.log(`Removing state: ${BOLD}${key}${RESET}`);
     this.connection.send({
       key,
       type: 'state_remove',
@@ -126,7 +168,7 @@ export class McpClient {
   }
 
   setState(key: string, value: unknown): void {
-    this.log(`Setting state: ${key}`, value);
+    this.log(`Setting state: ${BOLD}${key}${RESET}`, value);
     this.connection.send({
       key,
       type: 'state_update',
@@ -138,7 +180,7 @@ export class McpClient {
     this.log(`Unregistering dynamic tool: ${name}`);
     this.moduleRunner.unregisterDynamicTool(name);
     this.connection.send({
-      module: '_dynamic',
+      module: `${MODULE_SEPARATOR}dynamic`,
       toolName: name,
       type: 'tool_unregister',
     });
@@ -156,10 +198,12 @@ export class McpClient {
   private sendRegistration(): void {
     const descriptors = this.moduleRunner.getModuleDescriptors();
     this.log(
-      'Sending registration:',
-      descriptors.map((m) => {
-        return `${m.name} (${m.tools.length} tools)`;
-      })
+      'Sending registration: ' +
+        descriptors
+          .map((m) => {
+            return `${colorModule(m.name)} (${m.tools.length} tools)`;
+          })
+          .join('; ')
     );
     this.connection.send({
       modules: descriptors,

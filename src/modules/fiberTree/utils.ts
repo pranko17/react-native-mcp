@@ -13,24 +13,30 @@ const SIMPLE_MEMO = 15;
 type Fiber = any;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let fiberRoot: any = null;
+let rootRefStore: any = null;
 
-export const initFiberRootCapture = (): void => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const hook = (global as any).__REACT_DEVTOOLS_GLOBAL_HOOK__;
-  if (!hook) return;
+export const setRootRef = (ref: unknown): void => {
+  rootRefStore = ref;
+};
 
-  const originalOnCommitFiberRoot = hook.onCommitFiberRoot?.bind(hook);
-  hook.onCommitFiberRoot = (rendererID: number, root: Fiber) => {
-    fiberRoot = root;
-    if (originalOnCommitFiberRoot) {
-      originalOnCommitFiberRoot(rendererID, root);
-    }
-  };
+const getFiberFromRef = (ref: unknown): Fiber | null => {
+  if (!ref) return null;
+  const r = ref as Record<string, unknown>;
+  const fiber = r._internalInstanceHandle ?? r.__internalInstanceHandle ?? r._reactInternals;
+  if (!fiber) return null;
+
+  let current = fiber as Fiber;
+  while (current.return) {
+    current = current.return;
+  }
+  return current;
 };
 
 export const getFiberRoot = (): Fiber | null => {
-  return fiberRoot?.current ?? null;
+  if (rootRefStore?.current) {
+    return getFiberFromRef(rootRefStore.current);
+  }
+  return null;
 };
 
 export const getComponentName = (fiber: Fiber): string => {

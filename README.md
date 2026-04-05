@@ -1,4 +1,4 @@
-# react-native-mcp
+# rnmcp
 
 A bidirectional [MCP](https://modelcontextprotocol.io/) bridge that connects AI agents to running React Native apps. The server is a proxy — all business logic runs inside your RN app.
 
@@ -22,9 +22,9 @@ AI Agent  --stdio/MCP-->  MCP Server (Node.js)  --WebSocket-->  RN App (device)
 ### 1. Install
 
 ```bash
-yarn add react-native-mcp
+yarn add rnmcp
 # or
-npm install react-native-mcp
+npm install rnmcp
 ```
 
 ### 2. Initialize in your app
@@ -39,7 +39,7 @@ import {
   navigationModule,
   networkModule,
   screenshotModule,
-} from 'react-native-mcp';
+} from 'rnmcp';
 import { createRef } from 'react';
 import { View } from 'react-native';
 
@@ -83,9 +83,9 @@ Add to your project's `.mcp.json`:
 ```json
 {
   "mcpServers": {
-    "react-native-mcp": {
+    "rnmcp": {
       "command": "npx",
-      "args": ["react-native-mcp"]
+      "args": ["rnmcp"]
     }
   }
 }
@@ -96,9 +96,9 @@ Or with a custom port:
 ```json
 {
   "mcpServers": {
-    "react-native-mcp": {
+    "rnmcp": {
       "command": "npx",
-      "args": ["react-native-mcp", "--port", "8347"]
+      "args": ["rnmcp", "--port", "8347"]
     }
   }
 }
@@ -625,7 +625,7 @@ Auto-adds `data-mcp-id` attributes to JSX components for reliable component iden
 // babel.config.js
 module.exports = {
   plugins: [
-    ['react-native-mcp/babel/test-id-plugin', {
+    ['rnmcp/babel/test-id-plugin', {
       attr: 'data-mcp-id',       // attribute name (default)
       separator: ':',             // separator (default)
       exclude: ['Fragment'],      // components to skip
@@ -656,8 +656,8 @@ module.exports = (api) => {
 
   return {
     plugins: [
-      isDev && ['react-native-mcp/babel/test-id-plugin'],
-      !isDev && ['react-native-mcp/babel/strip-plugin'],
+      isDev && ['rnmcp/babel/test-id-plugin'],
+      !isDev && ['rnmcp/babel/strip-plugin'],
     ].filter(Boolean),
   };
 };
@@ -665,7 +665,7 @@ module.exports = (api) => {
 
 **What it removes:**
 
-- All imports from `react-native-mcp`
+- All imports from `rnmcp`
 - `McpClient.initialize()`, `registerModule()`, `registerModules()` calls
 - `useMcpState()`, `useMcpTool()`, `useMcpModule()` calls
 - `<McpProvider>` JSX (replaced with children)
@@ -709,7 +709,7 @@ The server includes instructions and tool annotations to help AI agents understa
 Create your own module by returning an `McpModule` object:
 
 ```typescript
-import { type McpModule } from 'react-native-mcp';
+import { type McpModule } from 'rnmcp';
 
 const myModule = (): McpModule => {
   return {
@@ -826,7 +826,7 @@ If you're developing with the library linked locally via symlink/portal:
 
 ```javascript
 // metro.config.js
-const mcpPath = require('path').resolve(__dirname, '../path-to/react-native-mcp');
+const mcpPath = require('path').resolve(__dirname, '../path-to/rnmcp');
 
 module.exports = {
   watchFolders: [mcpPath],

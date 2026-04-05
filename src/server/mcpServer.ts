@@ -6,7 +6,7 @@ import { DYNAMIC_PREFIX, MODULE_SEPARATOR, type ModuleDescriptor } from '@/share
 
 import { type Bridge } from './bridge';
 
-const BASE_INSTRUCTIONS = `You are connected to a running React Native app via the react-native-mcp bridge.
+const BASE_INSTRUCTIONS = `You are connected to a running React Native app via the rnmcp bridge.
 
 ## How to interact
 
@@ -24,7 +24,7 @@ export class McpServerWrapper {
 
   constructor(private readonly bridge: Bridge) {
     this.mcp = new McpServer(
-      { name: 'react-native-mcp', version: '1.0.0' },
+      { name: 'rnmcp', version: '1.0.0' },
       { instructions: BASE_INSTRUCTIONS }
     );
 

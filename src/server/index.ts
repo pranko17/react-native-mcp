@@ -26,7 +26,7 @@ export async function createServer(config?: ServerConfig): Promise<void> {
   });
 
   await bridge.start();
-  process.stderr.write(`react-native-mcp bridge listening on port ${port}\n`);
+  process.stderr.write(`rnmcp bridge listening on port ${port}\n`);
 
   await mcpServer.start();
 }

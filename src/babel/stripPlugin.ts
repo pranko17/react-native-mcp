@@ -7,7 +7,7 @@ interface PluginOptions {
   additionalSources?: string[];
 }
 
-const DEFAULT_SOURCES = ['react-native-mcp'];
+const DEFAULT_SOURCES = ['rnmcp', 'react-native-mcp'];
 
 const DEFAULT_FUNCTIONS = ['useMcpState', 'useMcpTool', 'useMcpModule', 'initMcp'];
 

@@ -16,7 +16,7 @@ No test suite is configured.
 
 ## Architecture
 
-`react-native-mcp` is a bidirectional MCP bridge connecting React Native apps to AI agents. The server is a proxy — all business logic (state collection, command execution) runs inside the RN app.
+`rnmcp` is a bidirectional MCP bridge connecting React Native apps to AI agents. The server is a proxy — all business logic (state collection, command execution) runs inside the RN app.
 
 ```
 AI Agent  --stdio/MCP-->  MCP Server (Node.js)  --WebSocket-->  RN App (device)
@@ -56,7 +56,7 @@ src/
   server/
     bridge.ts               — WebSocket server, request/response dispatch
     mcpServer.ts            — 5 static MCP tools via registerTool + server instructions + image content support
-    cli.ts                  — CLI entry point (npx react-native-mcp)
+    cli.ts                  — CLI entry point (npx rnmcp)
   modules/
     alert/                  — Show alerts with custom buttons and styles
     fiberTree/              — React fiber tree inspection, invoke callbacks, call ref methods
@@ -149,8 +149,8 @@ With strip plugin, `if (__DEV__)` wrappers are not needed — the plugin handles
 
 ### Babel Plugins
 
-- **testIdPlugin** (dev only): Auto-adds `data-mcp-id` attribute to all JSX components. Format: `ComponentName:filePath:line`. Stable across re-renders. Configurable: `attr`, `separator`, `include`, `exclude`. Import path: `react-native-mcp/babel/test-id-plugin`.
-- **stripPlugin** (prod only): Removes all MCP code — imports, requires, McpClient calls, McpProvider JSX, data-mcp-id attributes, useMcpState/useMcpTool calls. Import path: `react-native-mcp/babel/strip-plugin`.
+- **testIdPlugin** (dev only): Auto-adds `data-mcp-id` attribute to all JSX components. Format: `ComponentName:filePath:line`. Stable across re-renders. Configurable: `attr`, `separator`, `include`, `exclude`. Import path: `rnmcp/babel/test-id-plugin`.
+- **stripPlugin** (prod only): Removes all MCP code — imports, requires, McpClient calls, McpProvider JSX, data-mcp-id attributes, useMcpState/useMcpTool calls. Import path: `rnmcp/babel/strip-plugin`.
 
 ### Module Interface
 

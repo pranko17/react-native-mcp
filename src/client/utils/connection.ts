@@ -9,13 +9,13 @@ export class McpConnection {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
 
-  constructor(private readonly port: number) {}
+  constructor(private readonly url: string) {}
 
   connect(): void {
     if (this.disposed) return;
 
     try {
-      this.ws = new WebSocket(`ws://localhost:${this.port}`);
+      this.ws = new WebSocket(this.url);
 
       this.ws.onopen = () => {
         this.openHandler?.();

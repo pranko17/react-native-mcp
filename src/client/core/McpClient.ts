@@ -52,8 +52,8 @@ export class McpClient {
   private debug = false;
   private moduleRunner = new ModuleRunner();
 
-  private constructor(port: number) {
-    this.connection = new McpConnection(port);
+  private constructor(url: string) {
+    this.connection = new McpConnection(url);
 
     this.connection.onOpen(() => {
       this.log('🚀 Connected to MCP server 🚀');
@@ -96,7 +96,7 @@ export class McpClient {
     this.connection.connect();
   }
 
-  static initialize(options?: { debug?: boolean; port?: number }): McpClient {
+  static initialize(options?: { debug?: boolean; host?: string; port?: number }): McpClient {
     if (McpClient.instance) {
       if (options?.debug !== undefined) {
         McpClient.instance.debug = options.debug;
@@ -104,7 +104,9 @@ export class McpClient {
       return McpClient.instance;
     }
 
-    McpClient.instance = new McpClient(options?.port ?? DEFAULT_PORT);
+    const host = options?.host ?? 'localhost';
+    const port = options?.port ?? DEFAULT_PORT;
+    McpClient.instance = new McpClient(`ws://${host}:${port}`);
     McpClient.instance.debug = options?.debug ?? false;
     return McpClient.instance;
   }

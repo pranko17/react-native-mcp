@@ -16,7 +16,7 @@ No test suite is configured.
 
 ## Architecture
 
-`rnmcp` is a bidirectional MCP bridge connecting React Native apps to AI agents. The server is a proxy — all business logic (state collection, command execution) runs inside the RN app.
+`react-native-mcp-kit` is a bidirectional MCP bridge connecting React Native apps to AI agents. The server is a proxy — all business logic (state collection, command execution) runs inside the RN app.
 
 ```
 AI Agent  --stdio/MCP-->  MCP Server (Node.js)  --WebSocket-->  RN App (device)
@@ -56,7 +56,7 @@ src/
   server/
     bridge.ts               — WebSocket server, request/response dispatch
     mcpServer.ts            — 5 static MCP tools via registerTool + server instructions + image content support
-    cli.ts                  — CLI entry point (npx rnmcp)
+    cli.ts                  — CLI entry point (npx react-native-mcp-kit)
   modules/
     alert/                  — Show alerts with custom buttons and styles
     fiberTree/              — React fiber tree inspection, invoke callbacks, call ref methods
@@ -110,6 +110,7 @@ McpClient.getInstance().registerModules([
 Calling `McpClient.getInstance()` before `initialize()` throws an error with a console message.
 
 Three ways to register modules:
+
 - **Global**: `McpClient.getInstance().registerModule(module)` — from anywhere after init
 - **Hook**: `useMcpModule(() => module, deps)` — tied to component lifecycle
 - **Init time**: Register right after `McpClient.initialize()`
@@ -149,8 +150,8 @@ With strip plugin, `if (__DEV__)` wrappers are not needed — the plugin handles
 
 ### Babel Plugins
 
-- **testIdPlugin** (dev only): Auto-adds `data-mcp-id` attribute to all JSX components. Format: `ComponentName:filePath:line`. Stable across re-renders. Configurable: `attr`, `separator`, `include`, `exclude`. Import path: `rnmcp/babel/test-id-plugin`.
-- **stripPlugin** (prod only): Removes all MCP code — imports, requires, McpClient calls, McpProvider JSX, data-mcp-id attributes, useMcpState/useMcpTool calls. Import path: `rnmcp/babel/strip-plugin`.
+- **testIdPlugin** (dev only): Auto-adds `data-mcp-id` attribute to all JSX components. Format: `ComponentName:filePath:line`. Stable across re-renders. Configurable: `attr`, `separator`, `include`, `exclude`. Import path: `react-native-mcp-kit/babel/test-id-plugin`.
+- **stripPlugin** (prod only): Removes all MCP code — imports, requires, McpClient calls, McpProvider JSX, data-mcp-id attributes, useMcpState/useMcpTool calls. Import path: `react-native-mcp-kit/babel/strip-plugin`.
 
 ### Module Interface
 
@@ -205,7 +206,7 @@ Module `description` is shown in `list_tools` output and helps AI agents underst
 
 `McpClient.initialize({ debug: true })` enables colored console output showing all tool requests/responses. Uses original `console.log` (captured before console module intercepts it) so debug logs don't appear in the console module buffer.
 
-Colors: bold purple `[rnmcp]` tag, colored module names (12 bold ANSI colors assigned by registration order), bold method names. Cyan `→` for incoming requests, green `←` for responses, red `✕` for errors.
+Colors: bold purple `[rn-mcp-kit]` tag, colored module names (12 bold ANSI colors assigned by registration order), bold method names. Cyan `→` for incoming requests, green `←` for responses, red `✕` for errors.
 
 ## Code Style
 

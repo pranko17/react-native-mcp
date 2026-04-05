@@ -1,13 +1,13 @@
 {
-  "name": "rnmcp",
+  "name": "react-native-mcp-kit",
   "version": "1.0.0",
   "description": "Bidirectional MCP bridge connecting AI agents to running React Native apps",
   "license": "MIT",
   "author": "Aliaksei Pranko",
-  "homepage": "https://github.com/pranko17/rnmcp#readme",
+  "homepage": "https://github.com/pranko17/react-native-mcp-kit#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/pranko17/rnmcp.git"
+    "url": "https://github.com/pranko17/react-native-mcp-kit.git"
   },
   "keywords": [
     "ai",
@@ -34,7 +34,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "rnmcp": "dist/server/cli.js"
+    "react-native-mcp-kit": "dist/server/cli.js"
   },
   "exports": {
     ".": "./dist/index.js",

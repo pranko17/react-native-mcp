@@ -7,15 +7,15 @@ interface PluginOptions {
   additionalSources?: string[];
 }
 
-const DEFAULT_SOURCES = ['rnmcp', 'react-native-mcp'];
+const DEFAULT_SOURCES = ['react-native-mcp-kit'];
 
 const DEFAULT_FUNCTIONS = ['useMcpState', 'useMcpTool', 'useMcpModule', 'initMcp'];
 
 export default function stripPlugin({ types: t }: { types: typeof BabelTypes }): PluginObj {
   return {
-    name: 'react-native-mcp-strip',
+    name: 'react-native-mcp-kit-strip',
     visitor: {
-      // Remove require('react-native-mcp')
+      // Remove require('react-native-mcp-kit')
       CallExpression(path, state) {
         const opts = (state.opts ?? {}) as PluginOptions;
         const sources = [...DEFAULT_SOURCES, ...(opts.additionalSources ?? [])];

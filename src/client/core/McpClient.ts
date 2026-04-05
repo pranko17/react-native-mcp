@@ -4,7 +4,7 @@ import { ModuleRunner } from '@/client/utils/moduleRunner';
 import { MODULE_SEPARATOR, type ToolRequest } from '@/shared/protocol';
 
 const DEFAULT_PORT = 8347;
-const TAG = '\x1b[1;35m[rnmcp]\x1b[0m';
+const TAG = '\x1b[1;35m[rn-mcp-kit]\x1b[0m';
 const ARROW_IN = '\x1b[36m→\x1b[0m';
 const ARROW_OUT = '\x1b[32m←\x1b[0m';
 const CROSS = '\x1b[31m✕\x1b[0m';
@@ -16,12 +16,8 @@ const MODULE_COLORS = [
   '\x1b[1;34m', // bold blue
   '\x1b[1;35m', // bold magenta
   '\x1b[1;36m', // bold cyan
-  '\x1b[1;91m', // bold bright red
-  '\x1b[1;92m', // bold bright green
-  '\x1b[1;93m', // bold bright yellow
   '\x1b[1;94m', // bold bright blue
   '\x1b[1;95m', // bold bright magenta
-  '\x1b[1;96m', // bold bright cyan
 ];
 
 const BOLD = '\x1b[1m';
@@ -40,6 +36,10 @@ const getModuleColor = (moduleName: string): string => {
 
 const colorModule = (moduleName: string): string => {
   return `${getModuleColor(moduleName)}${moduleName}${RESET}`;
+};
+
+const formatTool = (moduleName: string, method: string): string => {
+  return `${colorModule(moduleName)}.${BOLD}${method}${RESET}`;
 };
 
 // Capture original console.log before any module intercepts it
@@ -62,17 +62,11 @@ export class McpClient {
 
     this.connection.onMessage((message: ToolRequest) => {
       if (message.type === 'tool_request') {
-        this.log(
-          `${ARROW_IN} ${colorModule(message.module)}.${BOLD}${message.method}${RESET}`,
-          message.args
-        );
+        this.log(`${ARROW_IN} ${formatTool(message.module, message.method)}`, message.args);
         this.moduleRunner
           .handleRequest(message)
           .then((result) => {
-            this.log(
-              `${ARROW_OUT} ${colorModule(message.module)}.${BOLD}${message.method}${RESET}`,
-              result
-            );
+            this.log(`${ARROW_OUT} ${formatTool(message.module, message.method)}`, result);
             this.connection.send({
               id: message.id,
               result,
@@ -80,10 +74,7 @@ export class McpClient {
             });
           })
           .catch((error: Error) => {
-            this.log(
-              `${CROSS} ${colorModule(message.module)}.${BOLD}${message.method}${RESET}`,
-              error.message
-            );
+            this.log(`${CROSS} ${formatTool(message.module, message.method)}`, error.message);
             this.connection.send({
               error: error.message,
               id: message.id,

@@ -1,4 +1,4 @@
-# rnmcp
+# react-native-mcp-kit
 
 A bidirectional [MCP](https://modelcontextprotocol.io/) bridge that connects AI agents to running React Native apps. The server is a proxy — all business logic runs inside your RN app.
 
@@ -51,9 +51,9 @@ AI Agent  --stdio/MCP-->  MCP Server (Node.js)  --WebSocket-->  RN App (device)
 ### 1. Install
 
 ```bash
-yarn add rnmcp
+yarn add react-native-mcp-kit
 # or
-npm install rnmcp
+npm install react-native-mcp-kit
 ```
 
 ### 2. Initialize in your app
@@ -68,7 +68,7 @@ import {
   navigationModule,
   networkModule,
   screenshotModule,
-} from 'rnmcp';
+} from 'react-native-mcp-kit';
 import { createRef } from 'react';
 import { View } from 'react-native';
 
@@ -96,9 +96,7 @@ const App = () => {
   return (
     <View ref={rootRef} collapsable={false} style={{ flex: 1 }}>
       <NavigationContainer ref={navigationRef}>
-        <McpProvider>
-          {/* your app */}
-        </McpProvider>
+        <McpProvider>{/* your app */}</McpProvider>
       </NavigationContainer>
     </View>
   );
@@ -112,9 +110,9 @@ Add to your project's `.mcp.json`:
 ```json
 {
   "mcpServers": {
-    "rnmcp": {
+    "react-native-mcp-kit": {
       "command": "npx",
-      "args": ["rnmcp"]
+      "args": ["react-native-mcp-kit"]
     }
   }
 }
@@ -125,9 +123,9 @@ Or with a custom port:
 ```json
 {
   "mcpServers": {
-    "rnmcp": {
+    "react-native-mcp-kit": {
       "command": "npx",
-      "args": ["rnmcp", "--port", "8347"]
+      "args": ["react-native-mcp-kit", "--port", "8347"]
     }
   }
 }
@@ -141,19 +139,19 @@ Or with a custom port:
 
 ## Modules
 
-| Module | Factory | Description |
-|--------|---------|-------------|
-| [alert](#alert) | `alertModule()` | Show native alerts with custom buttons and styles |
-| [fiberTree](#fibertree) | `fiberTreeModule({ rootRef })` | React fiber tree inspection, invoke callbacks, call ref methods |
-| [console](#console) | `consoleModule(options?)` | Capture console.log/warn/error/info/debug |
-| [device](#device) | `deviceModule()` | Device info, app state, keyboard, linking, reload |
-| [errors](#errors) | `errorsModule(options?)` | Capture unhandled errors and promise rejections |
-| [i18next](#i18next) | `i18nextModule(i18n)` | Translation inspection and language management |
-| [navigation](#navigation) | `navigationModule(ref)` | Navigation state, history, navigate, push, pop, replace, reset |
-| [network](#network) | `networkModule(options?)` | HTTP request/response interception |
-| [reactQuery](#reactquery) | `reactQueryModule(queryClient)` | React Query cache inspection and management |
-| [screenshot](#screenshot) | `screenshotModule({ rootRef })` | Capture screenshots via Skia |
-| [storage](#storage) | `storageModule(...storages)` | Key-value storage inspection (MMKV, AsyncStorage, custom) |
+| Module                    | Factory                         | Description                                                     |
+| ------------------------- | ------------------------------- | --------------------------------------------------------------- |
+| [alert](#alert)           | `alertModule()`                 | Show native alerts with custom buttons and styles               |
+| [fiberTree](#fibertree)   | `fiberTreeModule({ rootRef })`  | React fiber tree inspection, invoke callbacks, call ref methods |
+| [console](#console)       | `consoleModule(options?)`       | Capture console.log/warn/error/info/debug                       |
+| [device](#device)         | `deviceModule()`                | Device info, app state, keyboard, linking, reload               |
+| [errors](#errors)         | `errorsModule(options?)`        | Capture unhandled errors and promise rejections                 |
+| [i18next](#i18next)       | `i18nextModule(i18n)`           | Translation inspection and language management                  |
+| [navigation](#navigation) | `navigationModule(ref)`         | Navigation state, history, navigate, push, pop, replace, reset  |
+| [network](#network)       | `networkModule(options?)`       | HTTP request/response interception                              |
+| [reactQuery](#reactquery) | `reactQueryModule(queryClient)` | React Query cache inspection and management                     |
+| [screenshot](#screenshot) | `screenshotModule({ rootRef })` | Capture screenshots via Skia                                    |
+| [storage](#storage)       | `storageModule(...storages)`    | Key-value storage inspection (MMKV, AsyncStorage, custom)       |
 
 ---
 
@@ -165,8 +163,8 @@ Show native alert dialogs with custom buttons and styles.
 client.registerModules([alertModule()]);
 ```
 
-| Tool | Description | Args |
-|------|-------------|------|
+| Tool   | Description       | Args                                                       |
+| ------ | ----------------- | ---------------------------------------------------------- |
 | `show` | Show alert dialog | `title?: string`, `message?: string`, `buttons?: Button[]` |
 
 Buttons can be strings or objects with style:
@@ -193,21 +191,21 @@ client.registerModules([fiberTreeModule({ rootRef })]);
 
 **Inspection tools:**
 
-| Tool | Description | Args |
-|------|-------------|------|
-| `get_tree` | Get full component tree | `depth?: number` (default: 10) |
-| `get_component` | Find a component | `name?`, `testID?`, `text?`, `mcpId?`, `within?`, `index?`, `depth?` |
-| `find_all` | Find all matching components | `name?`, `testID?`, `text?`, `mcpId?`, `hasProps?`, `within?` |
-| `get_props` | Get component props | same find params |
-| `get_children` | Get component children | same find params, `depth?` |
+| Tool            | Description                  | Args                                                                 |
+| --------------- | ---------------------------- | -------------------------------------------------------------------- |
+| `get_tree`      | Get full component tree      | `depth?: number` (default: 10)                                       |
+| `get_component` | Find a component             | `name?`, `testID?`, `text?`, `mcpId?`, `within?`, `index?`, `depth?` |
+| `find_all`      | Find all matching components | `name?`, `testID?`, `text?`, `mcpId?`, `hasProps?`, `within?`        |
+| `get_props`     | Get component props          | same find params                                                     |
+| `get_children`  | Get component children       | same find params, `depth?`                                           |
 
 **Interaction tools:**
 
-| Tool | Description | Args |
-|------|-------------|------|
-| `invoke` | Call any callback prop | find params, `callback: string`, `args?: unknown[]` |
-| `call_ref` | Call method on native ref | find params, `method: string`, `args?: unknown[]` |
-| `get_ref_methods` | List available ref methods | find params |
+| Tool              | Description                | Args                                                |
+| ----------------- | -------------------------- | --------------------------------------------------- |
+| `invoke`          | Call any callback prop     | find params, `callback: string`, `args?: unknown[]` |
+| `call_ref`        | Call method on native ref  | find params, `method: string`, `args?: unknown[]`   |
+| `get_ref_methods` | List available ref methods | find params                                         |
 
 **Finding components:**
 
@@ -264,19 +262,19 @@ client.registerModules([
   consoleModule({
     maxEntries: 200,
     levels: ['error', 'warn', 'log'],
-    stackTrace: ['error', 'warn'],  // or true for all levels
+    stackTrace: ['error', 'warn'], // or true for all levels
   }),
 ]);
 ```
 
-| Tool | Description | Args |
-|------|-------------|------|
-| `get_logs` | Get all logs | `level?: string`, `limit?: number` |
-| `get_errors` | Get error logs | `limit?: number` |
-| `get_warnings` | Get warning logs | `limit?: number` |
-| `get_info` | Get info logs | `limit?: number` |
-| `get_debug` | Get debug logs | `limit?: number` |
-| `clear_logs` | Clear all logs | — |
+| Tool           | Description      | Args                               |
+| -------------- | ---------------- | ---------------------------------- |
+| `get_logs`     | Get all logs     | `level?: string`, `limit?: number` |
+| `get_errors`   | Get error logs   | `limit?: number`                   |
+| `get_warnings` | Get warning logs | `limit?: number`                   |
+| `get_info`     | Get info logs    | `limit?: number`                   |
+| `get_debug`    | Get debug logs   | `limit?: number`                   |
+| `clear_logs`   | Clear all logs   | —                                  |
 
 Serializes complex values: functions, class instances, circular refs, Errors, Dates, RegExp, Symbols.
 
@@ -290,23 +288,23 @@ Device info and system APIs.
 client.registerModules([deviceModule()]);
 ```
 
-| Tool | Description | Args |
-|------|-------------|------|
-| `get_device_info` | Comprehensive device info (platform, dimensions, pixel ratio, appearance, dev mode) | — |
-| `get_platform` | Platform (OS, version, constants) | — |
-| `get_dimensions` | Screen and window dimensions | — |
-| `get_pixel_ratio` | Pixel density and font scale | — |
-| `get_appearance` | Color scheme (light/dark) | — |
-| `get_app_state` | App state (active/background/inactive) | — |
-| `get_accessibility_info` | Accessibility settings | — |
-| `get_keyboard_state` | Keyboard visibility and metrics | — |
-| `dismiss_keyboard` | Dismiss keyboard | — |
-| `open_url` | Open URL in appropriate app | `url: string` |
-| `can_open_url` | Check if URL can be opened | `url: string` |
-| `get_initial_url` | Get deep link that launched app | — |
-| `open_settings` | Open app settings | — |
-| `reload` | Reload app (dev only) | — |
-| `vibrate` | Vibrate device | `duration?: number` |
+| Tool                     | Description                                                                         | Args                |
+| ------------------------ | ----------------------------------------------------------------------------------- | ------------------- |
+| `get_device_info`        | Comprehensive device info (platform, dimensions, pixel ratio, appearance, dev mode) | —                   |
+| `get_platform`           | Platform (OS, version, constants)                                                   | —                   |
+| `get_dimensions`         | Screen and window dimensions                                                        | —                   |
+| `get_pixel_ratio`        | Pixel density and font scale                                                        | —                   |
+| `get_appearance`         | Color scheme (light/dark)                                                           | —                   |
+| `get_app_state`          | App state (active/background/inactive)                                              | —                   |
+| `get_accessibility_info` | Accessibility settings                                                              | —                   |
+| `get_keyboard_state`     | Keyboard visibility and metrics                                                     | —                   |
+| `dismiss_keyboard`       | Dismiss keyboard                                                                    | —                   |
+| `open_url`               | Open URL in appropriate app                                                         | `url: string`       |
+| `can_open_url`           | Check if URL can be opened                                                          | `url: string`       |
+| `get_initial_url`        | Get deep link that launched app                                                     | —                   |
+| `open_settings`          | Open app settings                                                                   | —                   |
+| `reload`                 | Reload app (dev only)                                                               | —                   |
+| `vibrate`                | Vibrate device                                                                      | `duration?: number` |
 
 ---
 
@@ -321,12 +319,12 @@ client.registerModules([errorsModule()]);
 client.registerModules([errorsModule({ maxEntries: 100 })]);
 ```
 
-| Tool | Description | Args |
-|------|-------------|------|
-| `get_errors` | Get captured errors | `source?: string`, `fatal?: boolean`, `limit?: number` |
-| `get_fatal` | Get fatal errors only | `limit?: number` |
-| `get_stats` | Error statistics | — |
-| `clear_errors` | Clear all errors | — |
+| Tool           | Description           | Args                                                   |
+| -------------- | --------------------- | ------------------------------------------------------ |
+| `get_errors`   | Get captured errors   | `source?: string`, `fatal?: boolean`, `limit?: number` |
+| `get_fatal`    | Get fatal errors only | `limit?: number`                                       |
+| `get_stats`    | Error statistics      | —                                                      |
+| `clear_errors` | Clear all errors      | —                                                      |
 
 Error sources: `global` (ErrorUtils), `promise` (unhandled rejections). Deduplicates within 100ms window.
 
@@ -342,14 +340,14 @@ import i18n from './i18n';
 client.registerModules([i18nextModule(i18n)]);
 ```
 
-| Tool | Description | Args |
-|------|-------------|------|
-| `get_info` | Current language, available languages, namespaces | — |
-| `get_resource` | Get full translation resource | `language?`, `namespace?` |
-| `get_keys` | List translation keys | `language?`, `namespace?` |
-| `translate` | Translate a key | `key: string`, `options?: string` (JSON) |
-| `search` | Search keys and values | `query: string`, `language?` |
-| `change_language` | Change current language | `language: string` |
+| Tool              | Description                                       | Args                                     |
+| ----------------- | ------------------------------------------------- | ---------------------------------------- |
+| `get_info`        | Current language, available languages, namespaces | —                                        |
+| `get_resource`    | Get full translation resource                     | `language?`, `namespace?`                |
+| `get_keys`        | List translation keys                             | `language?`, `namespace?`                |
+| `translate`       | Translate a key                                   | `key: string`, `options?: string` (JSON) |
+| `search`          | Search keys and values                            | `query: string`, `language?`             |
+| `change_language` | Change current language                           | `language: string`                       |
 
 ```typescript
 // Translate with interpolation
@@ -373,20 +371,20 @@ const navigationRef = createNavigationContainerRef();
 client.registerModules([navigationModule(navigationRef)]);
 ```
 
-| Tool | Description | Args |
-|------|-------------|------|
-| `get_state` | Full navigation state tree | — |
-| `get_current_route` | Current focused route | — |
-| `get_current_route_state` | Current route with nested state | — |
-| `get_history` | Log of all screen transitions | `offset?`, `limit?`, `full?: boolean` |
-| `navigate` | Navigate to screen (reuses existing) | `screen: string`, `params?: object` |
-| `push` | Push new screen onto stack | `screen: string`, `params?: object` |
-| `pop` | Pop screens | `count?: number` |
-| `pop_to` | Pop to specific screen | `screen: string`, `params?: object` |
-| `pop_to_top` | Pop to first screen | — |
-| `go_back` | Go back to previous screen | — |
-| `replace` | Replace current screen | `screen: string`, `params?: object` |
-| `reset` | Reset navigation state | `routes: Array<{name, params?}>`, `index?: number` |
+| Tool                      | Description                          | Args                                               |
+| ------------------------- | ------------------------------------ | -------------------------------------------------- |
+| `get_state`               | Full navigation state tree           | —                                                  |
+| `get_current_route`       | Current focused route                | —                                                  |
+| `get_current_route_state` | Current route with nested state      | —                                                  |
+| `get_history`             | Log of all screen transitions        | `offset?`, `limit?`, `full?: boolean`              |
+| `navigate`                | Navigate to screen (reuses existing) | `screen: string`, `params?: object`                |
+| `push`                    | Push new screen onto stack           | `screen: string`, `params?: object`                |
+| `pop`                     | Pop screens                          | `count?: number`                                   |
+| `pop_to`                  | Pop to specific screen               | `screen: string`, `params?: object`                |
+| `pop_to_top`              | Pop to first screen                  | —                                                  |
+| `go_back`                 | Go back to previous screen           | —                                                  |
+| `replace`                 | Replace current screen               | `screen: string`, `params?: object`                |
+| `reset`                   | Reset navigation state               | `routes: Array<{name, params?}>`, `index?: number` |
 
 **Navigation history:**
 
@@ -423,14 +421,14 @@ client.registerModules([
 ]);
 ```
 
-| Tool | Description | Args |
-|------|-------------|------|
-| `get_requests` | Get captured requests | `method?`, `status?`, `url?`, `limit?` |
-| `get_request` | Find requests by URL substring | `url: string` |
-| `get_pending` | Get in-flight requests | — |
-| `get_errors` | Get failed requests | `limit?: number` |
-| `get_stats` | Request statistics | — |
-| `clear_requests` | Clear captured requests | — |
+| Tool             | Description                    | Args                                   |
+| ---------------- | ------------------------------ | -------------------------------------- |
+| `get_requests`   | Get captured requests          | `method?`, `status?`, `url?`, `limit?` |
+| `get_request`    | Find requests by URL substring | `url: string`                          |
+| `get_pending`    | Get in-flight requests         | —                                      |
+| `get_errors`     | Get failed requests            | `limit?: number`                       |
+| `get_stats`      | Request statistics             | —                                      |
+| `clear_requests` | Clear captured requests        | —                                      |
 
 Auto-ignores WebSocket, Metro, and symbolicate URLs.
 
@@ -448,15 +446,15 @@ const queryClient = new QueryClient();
 client.registerModules([reactQueryModule(queryClient)]);
 ```
 
-| Tool | Description | Args |
-|------|-------------|------|
-| `get_queries` | List all cached queries | `status?`, `key?` (substring) |
-| `get_data` | Get cached data for a query | `key: string` (JSON format) |
-| `get_stats` | Cache statistics | — |
-| `invalidate` | Invalidate queries (mark stale) | `key?: string` |
-| `refetch` | Refetch queries | `key?: string` |
-| `remove` | Remove from cache | `key?: string` |
-| `reset` | Reset to initial state | `key?: string` |
+| Tool          | Description                     | Args                          |
+| ------------- | ------------------------------- | ----------------------------- |
+| `get_queries` | List all cached queries         | `status?`, `key?` (substring) |
+| `get_data`    | Get cached data for a query     | `key: string` (JSON format)   |
+| `get_stats`   | Cache statistics                | —                             |
+| `invalidate`  | Invalidate queries (mark stale) | `key?: string`                |
+| `refetch`     | Refetch queries                 | `key?: string`                |
+| `remove`      | Remove from cache               | `key?: string`                |
+| `reset`       | Reset to initial state          | `key?: string`                |
 
 ```typescript
 // Get data for a specific query
@@ -490,8 +488,8 @@ client.registerModules([screenshotModule({ rootRef })]);
 </View>
 ```
 
-| Tool | Description | Args |
-|------|-------------|------|
+| Tool      | Description        | Args                                                              |
+| --------- | ------------------ | ----------------------------------------------------------------- |
 | `capture` | Capture screenshot | `format?: 'jpeg'\|'png'`, `quality?: number`, `maxWidth?: number` |
 
 Default: JPEG, quality 80, max width 600px (height scales proportionally). Images are resized via `Skia.Surface.Make` + `drawImageRectOptions` for optimal size.
@@ -515,16 +513,11 @@ Key-value storage inspection. Supports multiple named storage instances with fle
 
 ```typescript
 // Single storage
-client.registerModules([
-  storageModule({ name: 'app', adapter: myStorageAdapter }),
-]);
+client.registerModules([storageModule({ name: 'app', adapter: myStorageAdapter })]);
 
 // Multiple storages
 client.registerModules([
-  storageModule(
-    { name: 'app', adapter: appStorage },
-    { name: 'cache', adapter: cacheStorage },
-  ),
+  storageModule({ name: 'app', adapter: appStorage }, { name: 'cache', adapter: cacheStorage }),
 ]);
 ```
 
@@ -539,14 +532,14 @@ interface StorageAdapter {
 }
 ```
 
-| Tool | Description | Args |
-|------|-------------|------|
-| `get_item` | Get value by key | `key: string`, `storage?: string` |
-| `set_item` | Set value | `key: string`, `value: string`, `storage?: string` |
-| `delete_item` | Delete key | `key: string`, `storage?: string` |
-| `list_keys` | List all keys | `storage?: string` |
-| `get_all` | Get all key-value pairs | `storage?: string` |
-| `list_storages` | List registered storages | — |
+| Tool            | Description              | Args                                               |
+| --------------- | ------------------------ | -------------------------------------------------- |
+| `get_item`      | Get value by key         | `key: string`, `storage?: string`                  |
+| `set_item`      | Set value                | `key: string`, `value: string`, `storage?: string` |
+| `delete_item`   | Delete key               | `key: string`, `storage?: string`                  |
+| `list_keys`     | List all keys            | `storage?: string`                                 |
+| `get_all`       | Get all key-value pairs  | `storage?: string`                                 |
+| `list_storages` | List registered storages | —                                                  |
 
 Works with MMKV, AsyncStorage, or any custom adapter.
 
@@ -600,7 +593,9 @@ useMcpTool(
 
 ```typescript
 const UserProvider = ({ children }) => {
-  const logout = useCallback(() => { /* ... */ }, []);
+  const logout = useCallback(() => {
+    /* ... */
+  }, []);
 
   useMcpTool(
     'logout',
@@ -635,10 +630,7 @@ useMcpModule(
 const App = () => {
   const queryClient = useQueryClient();
 
-  useMcpModule(
-    () => reactQueryModule(queryClient),
-    [queryClient]
-  );
+  useMcpModule(() => reactQueryModule(queryClient), [queryClient]);
 
   // ...
 };
@@ -654,12 +646,15 @@ Auto-adds `data-mcp-id` attributes to JSX components for reliable component iden
 // babel.config.js
 module.exports = {
   plugins: [
-    ['rnmcp/babel/test-id-plugin', {
-      attr: 'data-mcp-id',       // attribute name (default)
-      separator: ':',             // separator (default)
-      exclude: ['Fragment'],      // components to skip
-      include: ['Button', 'Input'], // if set, only these get IDs
-    }],
+    [
+      'react-native-mcp-kit/babel/test-id-plugin',
+      {
+        attr: 'data-mcp-id', // attribute name (default)
+        separator: ':', // separator (default)
+        exclude: ['Fragment'], // components to skip
+        include: ['Button', 'Input'], // if set, only these get IDs
+      },
+    ],
   ],
 };
 ```
@@ -685,8 +680,8 @@ module.exports = (api) => {
 
   return {
     plugins: [
-      isDev && ['rnmcp/babel/test-id-plugin'],
-      !isDev && ['rnmcp/babel/strip-plugin'],
+      isDev && ['react-native-mcp-kit/babel/test-id-plugin'],
+      !isDev && ['react-native-mcp-kit/babel/strip-plugin'],
     ].filter(Boolean),
   };
 };
@@ -694,7 +689,7 @@ module.exports = (api) => {
 
 **What it removes:**
 
-- All imports from `rnmcp`
+- All imports from `react-native-mcp-kit`
 - `McpClient.initialize()`, `registerModule()`, `registerModules()` calls
 - `useMcpState()`, `useMcpTool()`, `useMcpModule()` calls
 - `<McpProvider>` JSX (replaced with children)
@@ -713,13 +708,13 @@ Two strategies for production safety:
 
 The server exposes 5 static tools (no dynamic registration needed):
 
-| Tool | Description |
-|------|-------------|
-| `call` | Universal proxy — calls any tool registered by the RN app |
-| `list_tools` | Lists all available tools grouped by module with descriptions |
-| `connection_status` | Check if the RN app is connected |
-| `state_get` | Read state exposed by `useMcpState` |
-| `state_list` | List all available state keys |
+| Tool                | Description                                                   |
+| ------------------- | ------------------------------------------------------------- |
+| `call`              | Universal proxy — calls any tool registered by the RN app     |
+| `list_tools`        | Lists all available tools grouped by module with descriptions |
+| `connection_status` | Check if the RN app is connected                              |
+| `state_get`         | Read state exposed by `useMcpState`                           |
+| `state_list`        | List all available state keys                                 |
 
 **Using `call`:**
 
@@ -738,7 +733,7 @@ The server includes instructions and tool annotations to help AI agents understa
 Create your own module by returning an `McpModule` object:
 
 ```typescript
-import { type McpModule } from 'rnmcp';
+import { type McpModule } from 'react-native-mcp-kit';
 
 const myModule = (): McpModule => {
   return {
@@ -791,7 +786,7 @@ McpClient.initialize({ debug: true });
 
 Output shows:
 
-- `[rnmcp]` tag (bold purple)
+- `[rn-mcp-kit]` tag (bold purple)
 - Colored module names (12 bold ANSI colors, assigned by registration order)
 - Bold method names
 - `→` incoming tool requests (cyan)
@@ -855,7 +850,7 @@ If you're developing with the library linked locally via symlink/portal:
 
 ```javascript
 // metro.config.js
-const mcpPath = require('path').resolve(__dirname, '../path-to/rnmcp');
+const mcpPath = require('path').resolve(__dirname, '../path-to/react-native-mcp-kit');
 
 module.exports = {
   watchFolders: [mcpPath],

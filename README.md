@@ -6,6 +6,35 @@ A bidirectional [MCP](https://modelcontextprotocol.io/) bridge that connects AI 
 AI Agent  --stdio/MCP-->  MCP Server (Node.js)  --WebSocket-->  RN App (device)
 ```
 
+## Table of Contents
+
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Modules](#modules)
+  - [alert](#alert)
+  - [fiberTree](#fibertree)
+  - [console](#console)
+  - [device](#device)
+  - [errors](#errors)
+  - [i18next](#i18next)
+  - [navigation](#navigation)
+  - [network](#network)
+  - [reactQuery](#reactquery)
+  - [screenshot](#screenshot)
+  - [storage](#storage)
+- [Hooks](#hooks)
+  - [useMcpState](#usemcpstate)
+  - [useMcpTool](#usemcptool)
+  - [useMcpModule](#usemcpmodule)
+- [Babel Plugins](#babel-plugins)
+  - [testIdPlugin](#testidplugin)
+  - [stripPlugin](#stripplugin)
+- [Dev vs Production](#dev-vs-production)
+- [MCP Server Tools](#mcp-server-tools)
+- [Custom Modules](#custom-modules)
+- [Debug Logging](#debug-logging)
+- [API Reference](#api-reference)
+
 ## Features
 
 - **11 built-in modules** — navigation, fiber tree, screenshot, network, console, storage, device, errors, i18next, React Query, alerts

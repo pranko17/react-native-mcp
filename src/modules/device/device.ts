@@ -8,6 +8,7 @@ export const deviceModule = (): McpModule => {
   };
 
   return {
+    description: 'Device info, app state, keyboard, linking, accessibility, reload, vibration.',
     name: 'device',
     tools: {
       // === Linking ===

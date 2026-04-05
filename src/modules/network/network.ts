@@ -208,6 +208,8 @@ export const networkModule = (options?: NetworkModuleOptions): McpModule => {
   };
 
   return {
+    description:
+      'Intercepted HTTP requests (fetch/XHR): view request/response bodies, headers, status, duration.',
     name: 'network',
     tools: {
       clear_requests: {

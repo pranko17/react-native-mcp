@@ -6,6 +6,16 @@ import { DYNAMIC_PREFIX, MODULE_SEPARATOR, type ModuleDescriptor } from '@/share
 
 import { type Bridge } from './bridge';
 
+const BASE_INSTRUCTIONS = `You are connected to a running React Native app via the react-native-mcp bridge.
+
+## How to interact
+
+1. Use \`connection_status\` to check if the app is connected
+2. Use \`list_tools\` to see all available tools with descriptions and examples
+3. Use \`call\` to invoke any tool with format: module${MODULE_SEPARATOR}method (e.g. navigation${MODULE_SEPARATOR}navigate)
+4. Use \`state_list\` / \`state_get\` to read app state exposed by the developer
+`;
+
 export class McpServerWrapper {
   private dynamicTools = new Map<string, { description: string; module: string }>();
   private mcp: McpServer;
@@ -13,7 +23,10 @@ export class McpServerWrapper {
   private stateStore = new Map<string, unknown>();
 
   constructor(private readonly bridge: Bridge) {
-    this.mcp = new McpServer({ name: 'react-native-mcp', version: '0.1.0' });
+    this.mcp = new McpServer(
+      { name: 'react-native-mcp', version: '1.0.0' },
+      { instructions: BASE_INSTRUCTIONS }
+    );
 
     this.registerTools();
   }
@@ -44,19 +57,26 @@ export class McpServerWrapper {
   }
 
   private registerTools(): void {
-    this.mcp.tool(
+    this.mcp.registerTool(
       'call',
-      'Call a tool registered by the React Native app. Use list_tools first to see available tools.',
       {
-        args: z
-          .string()
-          .optional()
-          .describe('Arguments as JSON string (e.g. {"screen": "AUTH_LOGIN_SCREEN"})'),
-        tool: z
-          .string()
-          .describe(
-            `Tool name in format "module${MODULE_SEPARATOR}method" (e.g. "navigation${MODULE_SEPARATOR}navigate")`
-          ),
+        annotations: {
+          openWorldHint: true,
+          title: 'Call Tool',
+        },
+        description:
+          'Call a tool registered by the React Native app. Use list_tools first to see available tools.',
+        inputSchema: {
+          args: z
+            .string()
+            .optional()
+            .describe('Arguments as JSON string (e.g. {"screen": "AUTH_LOGIN_SCREEN"})'),
+          tool: z
+            .string()
+            .describe(
+              `Tool name in format "module${MODULE_SEPARATOR}method" (e.g. "navigation${MODULE_SEPARATOR}navigate")`
+            ),
+        },
       },
       async ({ args, tool }) => {
         if (!this.bridge.isClientConnected()) {
@@ -125,9 +145,7 @@ export class McpServerWrapper {
           // No module matched — try as dynamic tool via bridge
           try {
             const result = await this.bridge.call(moduleName, methodName, parsedArgs);
-            return {
-              content: [{ text: JSON.stringify(result, null, 2), type: 'text' as const }],
-            };
+            return { content: this.formatResult(result) };
           } catch {
             const allModules = this.modules
               .map((m) => {
@@ -169,15 +187,19 @@ export class McpServerWrapper {
         }
 
         const result = await this.bridge.call(moduleName, methodName, parsedArgs, toolDef.timeout);
-        return {
-          content: [{ text: JSON.stringify(result, null, 2), type: 'text' as const }],
-        };
+        return { content: this.formatResult(result) };
       }
     );
 
-    this.mcp.tool(
+    this.mcp.registerTool(
       'list_tools',
-      'List all tools registered by the React Native app, grouped by module',
+      {
+        annotations: {
+          readOnlyHint: true,
+          title: 'List Tools',
+        },
+        description: 'List all tools registered by the React Native app, grouped by module',
+      },
       async () => {
         if (!this.bridge.isClientConnected()) {
           return {
@@ -195,6 +217,7 @@ export class McpServerWrapper {
 
         const moduleTools = this.modules.map((mod) => {
           return {
+            description: mod.description,
             module: mod.name,
             tools: mod.tools.map((t) => {
               return {
@@ -223,6 +246,7 @@ export class McpServerWrapper {
           }
           for (const [module, dynTools] of dynamicByModule) {
             moduleTools.push({
+              description: 'Dynamically registered tools from useMcpTool hooks',
               module: `${module} (dynamic)`,
               tools: dynTools as (typeof moduleTools)[0]['tools'],
             });
@@ -235,26 +259,44 @@ export class McpServerWrapper {
       }
     );
 
-    this.mcp.tool('connection_status', 'Check if the React Native app is connected', async () => {
-      return {
-        content: [
-          {
-            text: JSON.stringify({
-              connected: this.bridge.isClientConnected(),
-              modules: this.modules.map((m) => {
-                return m.name;
+    this.mcp.registerTool(
+      'connection_status',
+      {
+        annotations: {
+          readOnlyHint: true,
+          title: 'Connection Status',
+        },
+        description: 'Check if the React Native app is connected',
+      },
+      async () => {
+        return {
+          content: [
+            {
+              text: JSON.stringify({
+                connected: this.bridge.isClientConnected(),
+                modules: this.modules.map((m) => {
+                  return m.name;
+                }),
               }),
-            }),
-            type: 'text' as const,
-          },
-        ],
-      };
-    });
+              type: 'text' as const,
+            },
+          ],
+        };
+      }
+    );
 
-    this.mcp.tool(
+    this.mcp.registerTool(
       'state_get',
-      'Read a state value exposed by the React Native app via useMcpState',
-      { key: z.string().describe('State key to read (e.g. "cart", "auth")') },
+      {
+        annotations: {
+          readOnlyHint: true,
+          title: 'Get State',
+        },
+        description: 'Read a state value exposed by the React Native app via useMcpState',
+        inputSchema: {
+          key: z.string().describe('State key to read (e.g. "cart", "auth")'),
+        },
+      },
       async ({ key }) => {
         const value = this.stateStore.get(key);
         if (value === undefined) {
@@ -275,9 +317,15 @@ export class McpServerWrapper {
       }
     );
 
-    this.mcp.tool(
+    this.mcp.registerTool(
       'state_list',
-      'List all available state keys exposed by the React Native app',
+      {
+        annotations: {
+          readOnlyHint: true,
+          title: 'List State',
+        },
+        description: 'List all available state keys exposed by the React Native app',
+      },
       async () => {
         const keys = Array.from(this.stateStore.keys());
         return {
@@ -285,5 +333,21 @@ export class McpServerWrapper {
         };
       }
     );
+  }
+
+  private formatResult(result: unknown) {
+    if (Array.isArray(result) && result.length > 0) {
+      const first = result[0];
+      if (
+        typeof first === 'object' &&
+        first !== null &&
+        'type' in first &&
+        first.type === 'image'
+      ) {
+        return result as Array<{ data: string; mimeType: string; type: 'image' }>;
+      }
+    }
+
+    return [{ text: JSON.stringify(result, null, 2), type: 'text' as const }];
   }
 }

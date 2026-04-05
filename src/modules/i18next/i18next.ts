@@ -25,6 +25,8 @@ export const i18nextModule = (i18n: I18nLike): McpModule => {
   };
 
   return {
+    description:
+      'Translation inspection: search keys/values, translate with interpolation, change language.',
     name: 'i18n',
     tools: {
       change_language: {

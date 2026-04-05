@@ -104,6 +104,28 @@ export const fiberTreeModule = (options?: FiberTreeModuleOptions): McpModule => 
   };
 
   return {
+    description: `React component tree inspection and interaction.
+
+## Finding components
+- find_all with hasProps: ["onPress"] — find all pressable elements
+- find_all with hasProps: ["onChangeText"] — find all text inputs
+- find_all with name: "Button" — find by component name
+- get_component with mcpId: "Button:screens/Login:42" — find by stable ID
+
+## Interacting
+- invoke with callback: "onPress" — press a button
+- invoke with callback: "onChangeText", args: ["text"] — type into input
+- invoke with callback: "onPress", args: [true] — toggle checkbox
+- call_ref with method: "focus" — focus an input
+
+## Scoping with "within"
+- within: "LoginForm" — search only inside LoginForm
+- within: "Button:1/Pressable" — nested path with index
+
+## Tips
+- mcpId is stable across renders (format: ComponentName:file:line)
+- Use find_all first to discover available components, then invoke on them
+- Use screenshot after interactions to verify results`,
     name: 'fiber_tree',
     tools: {
       call_ref: {

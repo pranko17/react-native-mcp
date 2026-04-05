@@ -16,6 +16,7 @@ export interface ModuleToolDescriptor {
 export interface ModuleDescriptor {
   name: string;
   tools: ModuleToolDescriptor[];
+  description?: string;
 }
 
 export interface RegistrationMessage {

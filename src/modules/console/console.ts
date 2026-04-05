@@ -123,6 +123,7 @@ export const consoleModule = (options?: ConsoleModuleOptions): McpModule => {
   };
 
   return {
+    description: 'Captured console.log/warn/error/info/debug output with stack traces.',
     name: 'console',
     tools: {
       clear_logs: {

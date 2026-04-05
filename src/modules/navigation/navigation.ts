@@ -16,6 +16,8 @@ const findFocusedRoute = (state: NavigationState): unknown => {
 
 export const navigationModule = (navigation: NavigationRef): McpModule => {
   return {
+    description:
+      'React Navigation control: get current route/state, navigate, push, pop, replace, reset, go_back.',
     name: 'navigation',
     tools: {
       get_current_route: {

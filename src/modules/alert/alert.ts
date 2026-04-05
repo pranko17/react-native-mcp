@@ -16,6 +16,7 @@ export const alertModule = (): McpModule => {
   };
 
   return {
+    description: 'Show native alert dialogs with custom buttons. Returns which button was pressed.',
     name: 'alert',
     tools: {
       show: {

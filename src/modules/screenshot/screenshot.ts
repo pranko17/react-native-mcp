@@ -51,6 +51,8 @@ const resizeImage = (
 
 export const screenshotModule = (options: ScreenshotModuleOptions): McpModule => {
   return {
+    description:
+      'Capture screenshots of the app. Use after interactions to verify results. Returns JPEG by default.',
     name: 'screenshot',
     tools: {
       capture: {

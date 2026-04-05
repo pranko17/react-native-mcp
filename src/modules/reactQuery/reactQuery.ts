@@ -42,6 +42,8 @@ export const reactQueryModule = (queryClient: QueryClientLike): McpModule => {
   };
 
   return {
+    description:
+      'React Query cache: inspect queries, get cached data, invalidate, refetch, reset, remove.',
     name: 'query',
     tools: {
       get_data: {

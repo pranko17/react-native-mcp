@@ -66,6 +66,7 @@ export const errorsModule = (options?: ErrorsModuleOptions): McpModule => {
   };
 
   return {
+    description: 'Captured unhandled JS errors and promise rejections with stack traces.',
     name: 'errors',
     tools: {
       clear_errors: {

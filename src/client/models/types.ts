@@ -8,4 +8,5 @@ export interface ToolHandler {
 export interface McpModule {
   name: string;
   tools: Record<string, ToolHandler>;
+  description?: string;
 }

@@ -22,6 +22,8 @@ export const storageModule = (...storages: NamedStorage[]): McpModule => {
   };
 
   return {
+    description:
+      'Key-value storage inspection: get/set/delete items, list keys. Supports multiple named storages.',
     name: 'storage',
     tools: {
       delete_item: {

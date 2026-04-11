@@ -22,6 +22,11 @@ export interface ModuleDescriptor {
 export interface RegistrationMessage {
   modules: ModuleDescriptor[];
   type: 'registration';
+  appName?: string;
+  appVersion?: string;
+  deviceId?: string;
+  label?: string;
+  platform?: string;
 }
 
 // === Server → RN App: вызов tool ===

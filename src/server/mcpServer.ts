@@ -4,23 +4,40 @@ import { z } from 'zod';
 
 import { DYNAMIC_PREFIX, MODULE_SEPARATOR, type ModuleDescriptor } from '@/shared/protocol';
 
-import { type Bridge } from './bridge';
+import { type Bridge, type ClientEntry } from './bridge';
 
 const BASE_INSTRUCTIONS = `You are connected to a running React Native app via the react-native-mcp-kit bridge.
 
+Multiple React Native apps can connect simultaneously — each is identified by a short ID like "ios-1", "android-1", or "client-1". Use \`connection_status\` or \`list_tools\` to see which clients are connected and their IDs, platforms, and labels.
+
 ## How to interact
 
-1. Use \`connection_status\` to check if the app is connected
-2. Use \`list_tools\` to see all available tools with descriptions and examples
-3. Use \`call\` to invoke any tool with format: module${MODULE_SEPARATOR}method (e.g. navigation${MODULE_SEPARATOR}navigate)
-4. Use \`state_list\` / \`state_get\` to read app state exposed by the developer
+1. Use \`connection_status\` to check which clients are connected.
+2. Use \`list_tools\` to see all available tools per client, with descriptions and examples.
+3. Use \`call\` to invoke any tool with format: module${MODULE_SEPARATOR}method (e.g. navigation${MODULE_SEPARATOR}navigate). When more than one client is connected, specify \`clientId\`. When exactly one client is connected, \`clientId\` is optional — it's auto-picked.
+4. Use \`state_list\` / \`state_get\` to read app state exposed via useMcpState. State is scoped per client; specify \`clientId\` when multiple clients are connected.
 `;
 
+type TextContent = { text: string; type: 'text' };
+
+interface ToolGroup {
+  description: string | undefined;
+  module: string;
+  tools: Array<{
+    description: string;
+    name: string;
+    inputSchema?: Record<string, unknown>;
+  }>;
+}
+
+const jsonError = (msg: string): { content: TextContent[] } => {
+  return {
+    content: [{ text: JSON.stringify({ error: msg }), type: 'text' as const }],
+  };
+};
+
 export class McpServerWrapper {
-  private dynamicTools = new Map<string, { description: string; module: string }>();
   private mcp: McpServer;
-  private modules: ModuleDescriptor[] = [];
-  private stateStore = new Map<string, unknown>();
 
   constructor(private readonly bridge: Bridge) {
     this.mcp = new McpServer(
@@ -29,26 +46,6 @@ export class McpServerWrapper {
     );
 
     this.registerTools();
-  }
-
-  addDynamicTool(module: string, name: string, description: string): void {
-    this.dynamicTools.set(`${module}${MODULE_SEPARATOR}${name}`, { description, module });
-  }
-
-  removeDynamicTool(module: string, name: string): void {
-    this.dynamicTools.delete(`${module}${MODULE_SEPARATOR}${name}`);
-  }
-
-  setModules(modules: ModuleDescriptor[]): void {
-    this.modules = modules;
-  }
-
-  setState(key: string, value: unknown): void {
-    this.stateStore.set(key, value);
-  }
-
-  removeState(key: string): void {
-    this.stateStore.delete(key);
   }
 
   async start(): Promise<void> {
@@ -65,12 +62,18 @@ export class McpServerWrapper {
           title: 'Call Tool',
         },
         description:
-          'Call a tool registered by the React Native app. Use list_tools first to see available tools.',
+          'Call a tool registered by a React Native app client. Use list_tools first to see available tools. When multiple clients are connected, specify clientId; otherwise it is auto-picked.',
         inputSchema: {
           args: z
             .string()
             .optional()
             .describe('Arguments as JSON string (e.g. {"screen": "AUTH_LOGIN_SCREEN"})'),
+          clientId: z
+            .string()
+            .optional()
+            .describe(
+              'Target client ID (e.g. "ios-1", "android-1"). Optional when exactly one client is connected.'
+            ),
           tool: z
             .string()
             .describe(
@@ -78,24 +81,28 @@ export class McpServerWrapper {
             ),
         },
       },
-      async ({ args, tool }) => {
-        if (!this.bridge.isClientConnected()) {
-          return {
-            content: [
-              {
-                text: JSON.stringify({ error: 'React Native app is not connected' }),
-                type: 'text' as const,
-              },
-            ],
-          };
+      async ({ args, clientId, tool }) => {
+        let parsedArgs: Record<string, unknown> = {};
+        if (args) {
+          try {
+            parsedArgs = JSON.parse(args) as Record<string, unknown>;
+          } catch {
+            return jsonError('Invalid JSON in args');
+          }
         }
 
-        // Find the module by matching prefix
-        let mod: (typeof this.modules)[0] | undefined;
+        const resolution = this.bridge.resolveClient(clientId);
+        if (!resolution.ok) {
+          return jsonError(resolution.error);
+        }
+        const client = resolution.client;
+
+        // Find the module by matching prefix in this client's modules
+        let mod: ModuleDescriptor | undefined;
         let moduleName = '';
         let methodName = '';
 
-        for (const m of this.modules) {
+        for (const m of client.modules) {
           const prefix = `${m.name}${MODULE_SEPARATOR}`;
           if (tool.startsWith(prefix)) {
             mod = m;
@@ -105,7 +112,7 @@ export class McpServerWrapper {
           }
         }
 
-        // If no module matched, check for dynamic tool prefix
+        // If no module matched, check for dynamic tool prefix or generic module__method
         if (!mod) {
           if (tool.startsWith(DYNAMIC_PREFIX)) {
             moduleName = `${MODULE_SEPARATOR}dynamic`;
@@ -113,56 +120,28 @@ export class McpServerWrapper {
           } else {
             const idx = tool.indexOf(MODULE_SEPARATOR);
             if (idx <= 0) {
-              return {
-                content: [
-                  {
-                    text: JSON.stringify({
-                      error: `Invalid tool name "${tool}". Use "module${MODULE_SEPARATOR}method" format.`,
-                    }),
-                    type: 'text' as const,
-                  },
-                ],
-              };
+              return jsonError(
+                `Invalid tool name "${tool}". Use "module${MODULE_SEPARATOR}method" format.`
+              );
             }
             moduleName = tool.slice(0, idx);
             methodName = tool.slice(idx + MODULE_SEPARATOR.length);
           }
-        }
-        let parsedArgs: Record<string, unknown> = {};
-        if (args) {
-          try {
-            parsedArgs = JSON.parse(args) as Record<string, unknown>;
-          } catch {
-            return {
-              content: [
-                { text: JSON.stringify({ error: 'Invalid JSON in args' }), type: 'text' as const },
-              ],
-            };
-          }
-        }
 
-        if (!mod) {
-          // No module matched — try as dynamic tool via bridge
+          // Try dispatching via bridge — might be a dynamic tool registered on this client
           try {
-            const result = await this.bridge.call(moduleName, methodName, parsedArgs);
+            const result = await this.bridge.call(client.id, moduleName, methodName, parsedArgs);
             return { content: this.formatResult(result) };
           } catch {
-            const allModules = this.modules
+            const allModules = client.modules
               .map((m) => {
                 return m.name;
               })
               .join(', ');
-            const dynNames = [...this.dynamicTools.keys()].join(', ');
-            return {
-              content: [
-                {
-                  text: JSON.stringify({
-                    error: `Tool "${tool}" not found. Modules: ${allModules}. Dynamic: ${dynNames || 'none'}`,
-                  }),
-                  type: 'text' as const,
-                },
-              ],
-            };
+            const dynNames = [...client.dynamicTools.keys()].join(', ');
+            return jsonError(
+              `Tool "${tool}" not found on client '${client.id}'. Modules: ${allModules || '(none)'}. Dynamic: ${dynNames || '(none)'}`
+            );
           }
         }
 
@@ -170,23 +149,22 @@ export class McpServerWrapper {
           return t.name === methodName;
         });
         if (!toolDef) {
-          return {
-            content: [
-              {
-                text: JSON.stringify({
-                  error: `Tool "${methodName}" not found in module "${moduleName}". Available: ${mod.tools
-                    .map((t) => {
-                      return t.name;
-                    })
-                    .join(', ')}`,
-                }),
-                type: 'text' as const,
-              },
-            ],
-          };
+          return jsonError(
+            `Tool "${methodName}" not found in module "${moduleName}" on client '${client.id}'. Available: ${mod.tools
+              .map((t) => {
+                return t.name;
+              })
+              .join(', ')}`
+          );
         }
 
-        const result = await this.bridge.call(moduleName, methodName, parsedArgs, toolDef.timeout);
+        const result = await this.bridge.call(
+          client.id,
+          moduleName,
+          methodName,
+          parsedArgs,
+          toolDef.timeout
+        );
         return { content: this.formatResult(result) };
       }
     );
@@ -198,63 +176,39 @@ export class McpServerWrapper {
           readOnlyHint: true,
           title: 'List Tools',
         },
-        description: 'List all tools registered by the React Native app, grouped by module',
+        description:
+          'List all tools registered by connected React Native clients, grouped by client then by module.',
       },
       async () => {
-        if (!this.bridge.isClientConnected()) {
-          return {
-            content: [
-              {
-                text: JSON.stringify({
-                  connected: false,
-                  error: 'React Native app is not connected',
-                }),
-                type: 'text' as const,
-              },
-            ],
-          };
-        }
+        const clients = this.bridge.listClients();
 
-        const moduleTools = this.modules.map((mod) => {
+        const clientsPayload = clients.map((client) => {
           return {
-            description: mod.description,
-            module: mod.name,
-            tools: mod.tools.map((t) => {
-              return {
-                description: t.description,
-                inputSchema: t.inputSchema,
-                name: `${mod.name}${MODULE_SEPARATOR}${t.name}`,
-              };
-            }),
+            appName: client.appName,
+            appVersion: client.appVersion,
+            deviceId: client.deviceId,
+            id: client.id,
+            label: client.label,
+            modules: this.buildToolGroups(client),
+            platform: client.platform,
           };
         });
 
-        // Add dynamic tools (from useMcpTool hooks)
-        if (this.dynamicTools.size > 0) {
-          const dynamicByModule = new Map<
-            string,
-            Array<{ description: string; name: string; inputSchema?: Record<string, unknown> }>
-          >();
-          for (const [fullName, info] of this.dynamicTools) {
-            const existing = dynamicByModule.get(info.module) ?? [];
-            existing.push({
-              description: info.description,
-              inputSchema: undefined,
-              name: fullName,
-            });
-            dynamicByModule.set(info.module, existing);
-          }
-          for (const [module, dynTools] of dynamicByModule) {
-            moduleTools.push({
-              description: 'Dynamically registered tools from useMcpTool hooks',
-              module: `${module} (dynamic)`,
-              tools: dynTools as (typeof moduleTools)[0]['tools'],
-            });
-          }
+        const payload: {
+          clientCount: number;
+          clients: typeof clientsPayload;
+          clientError?: string;
+        } = {
+          clientCount: clients.length,
+          clients: clientsPayload,
+        };
+
+        if (clients.length === 0) {
+          payload.clientError = 'No React Native clients connected';
         }
 
         return {
-          content: [{ text: JSON.stringify(moduleTools, null, 2), type: 'text' as const }],
+          content: [{ text: JSON.stringify(payload, null, 2), type: 'text' as const }],
         };
       }
     );
@@ -266,21 +220,30 @@ export class McpServerWrapper {
           readOnlyHint: true,
           title: 'Connection Status',
         },
-        description: 'Check if the React Native app is connected',
+        description:
+          'List connected React Native clients with their IDs, platforms, labels, and registered module names.',
       },
       async () => {
-        return {
-          content: [
-            {
-              text: JSON.stringify({
-                connected: this.bridge.isClientConnected(),
-                modules: this.modules.map((m) => {
-                  return m.name;
-                }),
+        const clients = this.bridge.listClients();
+        const payload = {
+          clientCount: clients.length,
+          clients: clients.map((c) => {
+            return {
+              appName: c.appName,
+              appVersion: c.appVersion,
+              connectedAt: new Date(c.connectedAt).toISOString(),
+              deviceId: c.deviceId,
+              id: c.id,
+              label: c.label,
+              modules: c.modules.map((m) => {
+                return m.name;
               }),
-              type: 'text' as const,
-            },
-          ],
+              platform: c.platform,
+            };
+          }),
+        };
+        return {
+          content: [{ text: JSON.stringify(payload, null, 2), type: 'text' as const }],
         };
       }
     );
@@ -292,24 +255,26 @@ export class McpServerWrapper {
           readOnlyHint: true,
           title: 'Get State',
         },
-        description: 'Read a state value exposed by the React Native app via useMcpState',
+        description:
+          'Read a state value exposed by a React Native client via useMcpState. State is scoped per client; specify clientId when multiple clients are connected.',
         inputSchema: {
+          clientId: z
+            .string()
+            .optional()
+            .describe('Target client ID. Optional when exactly one client is connected.'),
           key: z.string().describe('State key to read (e.g. "cart", "auth")'),
         },
       },
-      async ({ key }) => {
-        const value = this.stateStore.get(key);
+      async ({ clientId, key }) => {
+        const resolution = this.bridge.resolveClient(clientId);
+        if (!resolution.ok) {
+          return jsonError(resolution.error);
+        }
+        const value = resolution.client.stateStore.get(key);
         if (value === undefined) {
-          return {
-            content: [
-              {
-                text: JSON.stringify({
-                  error: `State "${key}" not found. Use state_list to see available keys.`,
-                }),
-                type: 'text' as const,
-              },
-            ],
-          };
+          return jsonError(
+            `State "${key}" not found on client '${resolution.client.id}'. Use state_list to see available keys.`
+          );
         }
         return {
           content: [{ text: JSON.stringify(value, null, 2), type: 'text' as const }],
@@ -324,15 +289,116 @@ export class McpServerWrapper {
           readOnlyHint: true,
           title: 'List State',
         },
-        description: 'List all available state keys exposed by the React Native app',
+        description:
+          "List all available state keys. When a specific clientId is given, returns that client's keys; otherwise auto-picks the sole connected client or groups by client when multiple are connected.",
+        inputSchema: {
+          clientId: z
+            .string()
+            .optional()
+            .describe('Target client ID. Optional when exactly one client is connected.'),
+        },
       },
-      async () => {
-        const keys = Array.from(this.stateStore.keys());
+      async ({ clientId }) => {
+        if (clientId) {
+          const resolution = this.bridge.resolveClient(clientId);
+          if (!resolution.ok) {
+            return jsonError(resolution.error);
+          }
+          return {
+            content: [
+              {
+                text: JSON.stringify(
+                  {
+                    clientId: resolution.client.id,
+                    keys: [...resolution.client.stateStore.keys()],
+                  },
+                  null,
+                  2
+                ),
+                type: 'text' as const,
+              },
+            ],
+          };
+        }
+
+        const clients = this.bridge.listClients();
+        if (clients.length === 0) {
+          return jsonError('No React Native clients connected');
+        }
+        if (clients.length === 1) {
+          const client = clients[0]!;
+          return {
+            content: [
+              {
+                text: JSON.stringify(
+                  { clientId: client.id, keys: [...client.stateStore.keys()] },
+                  null,
+                  2
+                ),
+                type: 'text' as const,
+              },
+            ],
+          };
+        }
         return {
-          content: [{ text: JSON.stringify({ keys }, null, 2), type: 'text' as const }],
+          content: [
+            {
+              text: JSON.stringify(
+                {
+                  clients: clients.map((c) => {
+                    return { id: c.id, keys: [...c.stateStore.keys()] };
+                  }),
+                },
+                null,
+                2
+              ),
+              type: 'text' as const,
+            },
+          ],
         };
       }
     );
+  }
+
+  private buildToolGroups(client: ClientEntry): ToolGroup[] {
+    const groups: ToolGroup[] = client.modules.map((mod) => {
+      return {
+        description: mod.description,
+        module: mod.name,
+        tools: mod.tools.map((t) => {
+          return {
+            description: t.description,
+            inputSchema: t.inputSchema,
+            name: `${mod.name}${MODULE_SEPARATOR}${t.name}`,
+          };
+        }),
+      };
+    });
+
+    if (client.dynamicTools.size > 0) {
+      const dynamicByModule = new Map<
+        string,
+        Array<{ description: string; name: string; inputSchema?: Record<string, unknown> }>
+      >();
+      for (const [fullName, info] of client.dynamicTools) {
+        const existing = dynamicByModule.get(info.module) ?? [];
+        existing.push({
+          description: info.description,
+          inputSchema: undefined,
+          name: fullName,
+        });
+        dynamicByModule.set(info.module, existing);
+      }
+      for (const [module, dynTools] of dynamicByModule) {
+        groups.push({
+          description: 'Dynamically registered tools from useMcpTool hooks',
+          module: `${module} (dynamic)`,
+          tools: dynTools,
+        });
+      }
+    }
+
+    return groups;
   }
 
   private formatResult(result: unknown) {

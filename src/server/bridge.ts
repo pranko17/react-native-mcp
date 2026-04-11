@@ -3,75 +3,67 @@ import { randomUUID } from 'node:crypto';
 import { WebSocketServer } from 'ws';
 import { type WebSocket } from 'ws';
 
-import { type ClientMessage, type ModuleDescriptor, type ToolRequest } from '@/shared/protocol';
-
-import { type BridgeEvents } from './types';
+import {
+  type ClientMessage,
+  MODULE_SEPARATOR,
+  type ModuleDescriptor,
+  type ToolRequest,
+} from '@/shared/protocol';
 
 const REQUEST_TIMEOUT = 10_000;
 
+export interface ClientEntry {
+  readonly connectedAt: number;
+  readonly dynamicTools: Map<string, { description: string; module: string }>;
+  readonly id: string;
+  modules: ModuleDescriptor[];
+  readonly socket: WebSocket;
+  readonly stateStore: Map<string, unknown>;
+  readonly appName?: string;
+  readonly appVersion?: string;
+  readonly deviceId?: string;
+  readonly label?: string;
+  readonly platform?: string;
+}
+
+export type ClientResolution = { client: ClientEntry; ok: true } | { error: string; ok: false };
+
+interface PendingRequest {
+  clientId: string;
+  reject: (reason: Error) => void;
+  resolve: (value: unknown) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 export class Bridge {
   private wss: WebSocketServer | null = null;
-  private client: WebSocket | null = null;
-  private pendingRequests = new Map<
-    string,
-    {
-      reject: (reason: Error) => void;
-      resolve: (value: unknown) => void;
-      timer: ReturnType<typeof setTimeout>;
-    }
-  >();
-  private events: Partial<BridgeEvents> = {};
-
-  private registrationResolve: ((modules: ModuleDescriptor[]) => void) | null = null;
+  private clients = new Map<string, ClientEntry>();
+  private socketToClientId = new WeakMap<WebSocket, string>();
+  private platformSequences = new Map<string, number>();
+  private pendingRequests = new Map<string, PendingRequest>();
 
   constructor(private readonly port: number) {}
-
-  waitForRegistration(): Promise<ModuleDescriptor[]> {
-    return new Promise((resolve) => {
-      this.registrationResolve = resolve;
-    });
-  }
-
-  onRegistration(handler: BridgeEvents['onRegistration']): void {
-    this.events.onRegistration = handler;
-  }
-
-  onStateUpdate(handler: BridgeEvents['onStateUpdate']): void {
-    this.events.onStateUpdate = handler;
-  }
-
-  onStateRemove(handler: BridgeEvents['onStateRemove']): void {
-    this.events.onStateRemove = handler;
-  }
-
-  onToolRegister(handler: BridgeEvents['onToolRegister']): void {
-    this.events.onToolRegister = handler;
-  }
-
-  onToolUnregister(handler: BridgeEvents['onToolUnregister']): void {
-    this.events.onToolUnregister = handler;
-  }
 
   async start(): Promise<void> {
     return new Promise((resolve) => {
       this.wss = new WebSocketServer({ port: this.port });
 
       this.wss.on('connection', (ws) => {
-        this.client = ws;
-
         ws.on('message', (data) => {
           try {
             const message = JSON.parse(String(data)) as ClientMessage;
-            this.handleMessage(message);
+            this.handleMessage(ws, message);
           } catch {
             // ignore malformed messages
           }
         });
 
         ws.on('close', () => {
-          if (this.client === ws) {
-            this.client = null;
-            this.rejectAllPending('Client disconnected');
+          const clientId = this.socketToClientId.get(ws);
+          if (clientId) {
+            this.clients.delete(clientId);
+            this.socketToClientId.delete(ws);
+            this.rejectPendingForClient(clientId, `Client '${clientId}' disconnected`);
           }
         });
       });
@@ -82,14 +74,29 @@ export class Bridge {
     });
   }
 
+  async stop(): Promise<void> {
+    this.rejectAllPending('Server stopping');
+    return new Promise((resolve) => {
+      if (this.wss) {
+        this.wss.close(() => {
+          resolve();
+        });
+      } else {
+        resolve();
+      }
+    });
+  }
+
   async call(
+    clientId: string,
     module: string,
     method: string,
     args: Record<string, unknown>,
     timeout?: number
   ): Promise<unknown> {
-    if (!this.client) {
-      throw new Error('No client connected');
+    const client = this.clients.get(clientId);
+    if (!client) {
+      throw new Error(`Client '${clientId}' not connected`);
     }
 
     const id = randomUUID();
@@ -106,39 +113,89 @@ export class Bridge {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingRequests.delete(id);
-        reject(new Error(`Request ${module}.${method} timed out after ${timeoutMs}ms`));
+        reject(new Error(`Request ${clientId} ${module}.${method} timed out after ${timeoutMs}ms`));
       }, timeoutMs);
 
-      this.pendingRequests.set(id, { reject, resolve, timer });
-      this.client!.send(JSON.stringify(request));
+      this.pendingRequests.set(id, { clientId, reject, resolve, timer });
+      client.socket.send(JSON.stringify(request));
     });
   }
 
-  isClientConnected(): boolean {
-    return this.client !== null;
+  isAnyClientConnected(): boolean {
+    return this.clients.size > 0;
   }
 
-  async stop(): Promise<void> {
-    this.rejectAllPending('Server stopping');
-    return new Promise((resolve) => {
-      if (this.wss) {
-        this.wss.close(() => {
-          resolve();
-        });
-      } else {
-        resolve();
+  listClients(): ClientEntry[] {
+    return [...this.clients.values()];
+  }
+
+  getClient(id: string): ClientEntry | undefined {
+    return this.clients.get(id);
+  }
+
+  resolveClient(explicitId?: string): ClientResolution {
+    if (explicitId) {
+      const client = this.clients.get(explicitId);
+      if (!client) {
+        const available = [...this.clients.keys()].join(', ') || '(none)';
+        return {
+          error: `Client '${explicitId}' not connected. Available: ${available}`,
+          ok: false,
+        };
       }
-    });
+      return { client, ok: true };
+    }
+
+    if (this.clients.size === 0) {
+      return { error: 'No React Native clients connected', ok: false };
+    }
+
+    if (this.clients.size === 1) {
+      const [client] = this.clients.values();
+      return { client: client!, ok: true };
+    }
+
+    const labels = [...this.clients.values()]
+      .map((c) => {
+        return c.label ? `${c.id} (${c.label})` : c.id;
+      })
+      .join(', ');
+    return {
+      error: `Multiple clients connected: ${labels}. Specify clientId.`,
+      ok: false,
+    };
   }
 
-  private handleMessage(message: ClientMessage): void {
+  private handleMessage(socket: WebSocket, message: ClientMessage): void {
     switch (message.type) {
       case 'registration': {
-        if (this.registrationResolve) {
-          this.registrationResolve(message.modules);
-          this.registrationResolve = null;
+        const existingId = this.socketToClientId.get(socket);
+        if (existingId) {
+          // Re-registration on existing socket — just update the module list.
+          // Identity metadata is fixed for the lifetime of the connection.
+          const existing = this.clients.get(existingId);
+          if (existing) {
+            existing.modules = message.modules;
+          }
+          break;
         }
-        this.events.onRegistration?.(message.modules);
+
+        const id = this.nextClientId(message.platform);
+        const entry: ClientEntry = {
+          appName: message.appName,
+          appVersion: message.appVersion,
+          connectedAt: Date.now(),
+          deviceId: message.deviceId,
+          dynamicTools: new Map(),
+          id,
+          label: message.label,
+          modules: message.modules,
+          platform: message.platform,
+          socket,
+          stateStore: new Map(),
+        };
+        this.clients.set(id, entry);
+        this.socketToClientId.set(socket, id);
         break;
       }
       case 'tool_response': {
@@ -155,20 +212,62 @@ export class Bridge {
         break;
       }
       case 'state_update': {
-        this.events.onStateUpdate?.(message.key, message.value);
+        const client = this.clientForSocket(socket);
+        if (client) {
+          client.stateStore.set(message.key, message.value);
+        }
         break;
       }
       case 'state_remove': {
-        this.events.onStateRemove?.(message.key);
+        const client = this.clientForSocket(socket);
+        if (client) {
+          client.stateStore.delete(message.key);
+        }
         break;
       }
       case 'tool_register': {
-        this.events.onToolRegister?.(message.module, message.tool);
+        const client = this.clientForSocket(socket);
+        if (client) {
+          const fullName = `${message.module}${MODULE_SEPARATOR}${message.tool.name}`;
+          client.dynamicTools.set(fullName, {
+            description: message.tool.description,
+            module: message.module,
+          });
+        }
         break;
       }
       case 'tool_unregister': {
-        this.events.onToolUnregister?.(message.module, message.toolName);
+        const client = this.clientForSocket(socket);
+        if (client) {
+          const fullName = `${message.module}${MODULE_SEPARATOR}${message.toolName}`;
+          client.dynamicTools.delete(fullName);
+        }
         break;
+      }
+    }
+  }
+
+  private clientForSocket(socket: WebSocket): ClientEntry | undefined {
+    const id = this.socketToClientId.get(socket);
+    if (!id) {
+      return undefined;
+    }
+    return this.clients.get(id);
+  }
+
+  private nextClientId(platform?: string): string {
+    const prefix = platform ?? 'client';
+    const next = (this.platformSequences.get(prefix) ?? 0) + 1;
+    this.platformSequences.set(prefix, next);
+    return `${prefix}-${next}`;
+  }
+
+  private rejectPendingForClient(clientId: string, reason: string): void {
+    for (const [id, pending] of this.pendingRequests) {
+      if (pending.clientId === clientId) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error(reason));
+        this.pendingRequests.delete(id);
       }
     }
   }

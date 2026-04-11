@@ -45,14 +45,66 @@ const formatTool = (moduleName: string, method: string): string => {
 // Capture original console.log before any module intercepts it
 const originalConsoleLog = console.log.bind(console);
 
+interface ClientIdentity {
+  appName?: string;
+  appVersion?: string;
+  deviceId?: string;
+  label?: string;
+  platform?: string;
+}
+
+const autoDetectIdentity = (): ClientIdentity => {
+  const out: ClientIdentity = {};
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+    const rn = require('react-native');
+    const os = rn.Platform?.OS ?? rn.default?.Platform?.OS;
+    if (typeof os === 'string') {
+      out.platform = os;
+    }
+  } catch {
+    // not running inside a React Native bundle — that's fine
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+    const di = require('react-native-device-info');
+    const DI = di.default ?? di;
+    const appName: unknown = DI.getApplicationName?.();
+    const appVersion: unknown = DI.getVersion?.();
+    const deviceName: unknown = DI.getDeviceNameSync?.() ?? DI.getModel?.();
+    const deviceId: unknown = DI.getUniqueIdSync?.();
+
+    if (typeof appName === 'string') {
+      out.appName = appName;
+    }
+    if (typeof appVersion === 'string') {
+      out.appVersion = appVersion;
+    }
+    if (typeof deviceName === 'string') {
+      out.label = deviceName;
+    }
+    if (typeof deviceId === 'string') {
+      out.deviceId = deviceId;
+    }
+  } catch {
+    // react-native-device-info not installed — identity stays partial
+  }
+
+  return out;
+};
+
 export class McpClient {
   private static instance: McpClient | null = null;
 
   private connection: McpConnection;
   private debug = false;
+  private identity: ClientIdentity;
   private moduleRunner = new ModuleRunner();
 
-  private constructor(url: string) {
+  private constructor(url: string, identity: ClientIdentity) {
+    this.identity = identity;
     this.connection = new McpConnection(url);
 
     this.connection.onOpen(() => {
@@ -87,7 +139,16 @@ export class McpClient {
     this.connection.connect();
   }
 
-  static initialize(options?: { debug?: boolean; host?: string; port?: number }): McpClient {
+  static initialize(options?: {
+    appName?: string;
+    appVersion?: string;
+    debug?: boolean;
+    deviceId?: string;
+    host?: string;
+    label?: string;
+    platform?: string;
+    port?: number;
+  }): McpClient {
     if (McpClient.instance) {
       if (options?.debug !== undefined) {
         McpClient.instance.debug = options.debug;
@@ -97,7 +158,17 @@ export class McpClient {
 
     const host = options?.host ?? 'localhost';
     const port = options?.port ?? DEFAULT_PORT;
-    McpClient.instance = new McpClient(`ws://${host}:${port}`);
+
+    const auto = autoDetectIdentity();
+    const identity: ClientIdentity = {
+      appName: options?.appName ?? auto.appName,
+      appVersion: options?.appVersion ?? auto.appVersion,
+      deviceId: options?.deviceId ?? auto.deviceId,
+      label: options?.label ?? auto.label,
+      platform: options?.platform ?? auto.platform,
+    };
+
+    McpClient.instance = new McpClient(`ws://${host}:${port}`, identity);
     McpClient.instance.debug = options?.debug ?? false;
     return McpClient.instance;
   }
@@ -201,7 +272,12 @@ export class McpClient {
           .join('\n ')
     );
     this.connection.send({
+      appName: this.identity.appName,
+      appVersion: this.identity.appVersion,
+      deviceId: this.identity.deviceId,
+      label: this.identity.label,
       modules: descriptors,
+      platform: this.identity.platform,
       type: 'registration',
     });
   }

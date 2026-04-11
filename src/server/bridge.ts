@@ -27,6 +27,7 @@ export interface ClientEntry {
   readonly stateStore: Map<string, unknown>;
   readonly appName?: string;
   readonly appVersion?: string;
+  readonly bundleId?: string;
   readonly deviceId?: string;
   readonly label?: string;
   readonly platform?: string;
@@ -190,6 +191,7 @@ export class Bridge {
         const entry: ClientEntry = {
           appName: message.appName,
           appVersion: message.appVersion,
+          bundleId: message.bundleId,
           connectedAt: Date.now(),
           deviceId: message.deviceId,
           dynamicTools: new Map(),

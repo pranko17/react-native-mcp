@@ -21,6 +21,7 @@ export interface ResolvedDevice {
   displayName: string;
   nativeId: string;
   platform: 'android' | 'ios';
+  bundleId?: string;
 }
 
 export interface EnrichedIosSim extends IosSimulator {
@@ -47,6 +48,8 @@ interface Cache<T> {
 
 interface ResolveOptions {
   platform?: 'android' | 'ios';
+  serial?: string;
+  udid?: string;
 }
 
 let iosCache: Cache<IosSimulator[]> | null = null;
@@ -155,7 +158,12 @@ const resolveIosClient = async (
     const matched = matchIosSimByClient(sims, client);
     if (matched) {
       return {
-        device: { displayName: matched.name, nativeId: matched.udid, platform: 'ios' },
+        device: {
+          bundleId: client.bundleId,
+          displayName: matched.name,
+          nativeId: matched.udid,
+          platform: 'ios',
+        },
         ok: true,
       };
     }
@@ -195,6 +203,7 @@ const resolveAndroidClient = async (
     if (matched) {
       return {
         device: {
+          bundleId: client.bundleId,
           displayName: matched.serial,
           nativeId: matched.serial,
           platform: 'android',
@@ -333,6 +342,101 @@ const scanAndroidDevices = async (runner: ProcessRunner): Promise<DeviceResoluti
   }
 };
 
+const resolveIosByUdid = async (udid: string, runner: ProcessRunner): Promise<DeviceResolution> => {
+  try {
+    const sims = await listIosSimulators(runner);
+    const match = sims.find((s) => {
+      return s.udid === udid;
+    });
+    if (!match) {
+      const available =
+        sims
+          .map((s) => {
+            return `${s.udid} (${s.name})`;
+          })
+          .join(', ') || '(none)';
+      return {
+        error: `iOS simulator with UDID '${udid}' not found. Available: ${available}`,
+        ok: false,
+      };
+    }
+    if (match.state !== 'Booted') {
+      return {
+        error: `iOS simulator '${match.name}' (${udid}) is in state '${match.state}', not Booted. Boot it first via xcrun simctl boot.`,
+        ok: false,
+      };
+    }
+    return {
+      device: {
+        displayName: match.name,
+        nativeId: match.udid,
+        platform: 'ios',
+      },
+      ok: true,
+    };
+  } catch (err) {
+    if (err instanceof ProcessNotFoundError) {
+      return {
+        error: 'xcrun not found. iOS host tools require Xcode command line tools (macOS only).',
+        ok: false,
+      };
+    }
+    return {
+      error: `Failed to list iOS simulators: ${(err as Error).message}`,
+      ok: false,
+    };
+  }
+};
+
+const resolveAndroidBySerial = async (
+  serial: string,
+  runner: ProcessRunner
+): Promise<DeviceResolution> => {
+  try {
+    const devices = await listAndroidDevices(runner);
+    const match = devices.find((d) => {
+      return d.serial === serial;
+    });
+    if (!match) {
+      const available =
+        devices
+          .map((d) => {
+            return d.serial;
+          })
+          .join(', ') || '(none)';
+      return {
+        error: `Android device with serial '${serial}' not found. Available: ${available}`,
+        ok: false,
+      };
+    }
+    if (match.state !== 'device') {
+      return {
+        error: `Android device '${serial}' is in state '${match.state}', not 'device' (ready). Wait for boot to complete.`,
+        ok: false,
+      };
+    }
+    return {
+      device: {
+        displayName: match.serial,
+        nativeId: match.serial,
+        platform: 'android',
+      },
+      ok: true,
+    };
+  } catch (err) {
+    if (err instanceof ProcessNotFoundError) {
+      return {
+        error: 'adb not found. Android host tools require Android platform-tools on PATH.',
+        ok: false,
+      };
+    }
+    return {
+      error: `Failed to list Android devices: ${(err as Error).message}`,
+      ok: false,
+    };
+  }
+};
+
 const scanForDevice = async (
   platform: 'android' | 'ios' | undefined,
   runner: ProcessRunner
@@ -362,6 +466,14 @@ export const resolveDevice = async (
   options: ResolveOptions,
   runner: ProcessRunner
 ): Promise<DeviceResolution> => {
+  // Step 0: explicit native identifier — highest priority, bypasses everything else
+  if (options.udid) {
+    return resolveIosByUdid(options.udid, runner);
+  }
+  if (options.serial) {
+    return resolveAndroidBySerial(options.serial, runner);
+  }
+
   // Step 1: explicit clientId — resolve it, no bare-scan fallback
   if (ctx.requestedClientId) {
     const client = ctx.bridge.getClient(ctx.requestedClientId);

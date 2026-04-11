@@ -48,6 +48,7 @@ const originalConsoleLog = console.log.bind(console);
 interface ClientIdentity {
   appName?: string;
   appVersion?: string;
+  bundleId?: string;
   deviceId?: string;
   label?: string;
   platform?: string;
@@ -80,6 +81,7 @@ const autoDetectIdentity = (): ClientIdentity => {
     const DI = di.default ?? di;
     const appName: unknown = DI.getApplicationName?.();
     const appVersion: unknown = DI.getVersion?.();
+    const bundleId: unknown = DI.getBundleId?.() ?? DI.getBundleIdSync?.();
     const rawDeviceName: unknown = DI.getDeviceNameSync?.();
     const model: unknown = DI.getModel?.();
     const manufacturer: unknown = DI.getManufacturerSync?.() ?? DI.getBrand?.();
@@ -90,6 +92,9 @@ const autoDetectIdentity = (): ClientIdentity => {
     }
     if (typeof appVersion === 'string') {
       out.appVersion = appVersion;
+    }
+    if (typeof bundleId === 'string') {
+      out.bundleId = bundleId;
     }
     if (isUsefulString(rawDeviceName)) {
       out.label = rawDeviceName;
@@ -153,6 +158,7 @@ export class McpClient {
   static initialize(options?: {
     appName?: string;
     appVersion?: string;
+    bundleId?: string;
     debug?: boolean;
     deviceId?: string;
     host?: string;
@@ -174,6 +180,7 @@ export class McpClient {
     const identity: ClientIdentity = {
       appName: options?.appName ?? auto.appName,
       appVersion: options?.appVersion ?? auto.appVersion,
+      bundleId: options?.bundleId ?? auto.bundleId,
       deviceId: options?.deviceId ?? auto.deviceId,
       label: options?.label ?? auto.label,
       platform: options?.platform ?? auto.platform,
@@ -285,6 +292,7 @@ export class McpClient {
     this.connection.send({
       appName: this.identity.appName,
       appVersion: this.identity.appVersion,
+      bundleId: this.identity.bundleId,
       deviceId: this.identity.deviceId,
       label: this.identity.label,
       modules: descriptors,

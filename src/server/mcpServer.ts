@@ -19,7 +19,7 @@ Multiple React Native apps can connect simultaneously — each is identified by 
 4. Use \`call\` to invoke any tool with format: module${MODULE_SEPARATOR}method (e.g. navigation${MODULE_SEPARATOR}navigate). When more than one client is connected, specify \`clientId\`. When exactly one client is connected, \`clientId\` is optional — it's auto-picked.
 5. Use \`state_list\` / \`state_get\` to read app state exposed via useMcpState. State is scoped per client; specify \`clientId\` when multiple clients are connected.
 
-Some tools run inline on the MCP server host (e.g. \`host${MODULE_SEPARATOR}screenshot\`, \`host${MODULE_SEPARATOR}list_devices\`) and work even when no React Native client is connected. They use xcrun simctl / adb on the dev machine. When \`clientId\` is provided, host tools use that client's platform/label/deviceId as hints to resolve the target device; otherwise they prefer the device of the single connected client, falling back to the single booted sim / online device.
+Some tools run inline on the MCP server host (e.g. \`host${MODULE_SEPARATOR}screenshot\`, \`host${MODULE_SEPARATOR}list_devices\`, \`host${MODULE_SEPARATOR}launch_app\`, \`host${MODULE_SEPARATOR}terminate_app\`) and work even when no React Native client is connected. They use xcrun simctl / adb on the dev machine. When \`clientId\` is provided, host tools use that client's platform/label/deviceId as hints to resolve the target device; otherwise they prefer the device of the single connected client, falling back to the single booted sim / online device. \`launch_app\` and \`terminate_app\` accept an \`appId\` arg (iOS bundle ID / Android package name); omit it to reuse the target client's registered \`bundleId\` from its connection metadata.
 `;
 
 type TextContent = { text: string; type: 'text' };
@@ -350,6 +350,7 @@ export class McpServerWrapper {
           return {
             appName: client.appName,
             appVersion: client.appVersion,
+            bundleId: client.bundleId,
             deviceId: client.deviceId,
             id: client.id,
             label: client.label,
@@ -398,6 +399,7 @@ export class McpServerWrapper {
             return {
               appName: c.appName,
               appVersion: c.appVersion,
+              bundleId: c.bundleId,
               connectedAt: new Date(c.connectedAt).toISOString(),
               deviceId: c.deviceId,
               id: c.id,

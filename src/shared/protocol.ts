@@ -24,6 +24,7 @@ export interface RegistrationMessage {
   type: 'registration';
   appName?: string;
   appVersion?: string;
+  bundleId?: string;
   deviceId?: string;
   label?: string;
   platform?: string;

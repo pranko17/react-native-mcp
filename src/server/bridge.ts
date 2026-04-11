@@ -12,9 +12,15 @@ import {
 
 const REQUEST_TIMEOUT = 10_000;
 
+export interface DynamicToolEntry {
+  description: string;
+  module: string;
+  inputSchema?: Record<string, unknown>;
+}
+
 export interface ClientEntry {
   readonly connectedAt: number;
-  readonly dynamicTools: Map<string, { description: string; module: string }>;
+  readonly dynamicTools: Map<string, DynamicToolEntry>;
   readonly id: string;
   modules: ModuleDescriptor[];
   readonly socket: WebSocket;
@@ -231,6 +237,7 @@ export class Bridge {
           const fullName = `${message.module}${MODULE_SEPARATOR}${message.tool.name}`;
           client.dynamicTools.set(fullName, {
             description: message.tool.description,
+            inputSchema: message.tool.inputSchema,
             module: message.module,
           });
         }

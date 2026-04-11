@@ -445,7 +445,7 @@ export class McpServerWrapper {
         const existing = dynamicByModule.get(info.module) ?? [];
         existing.push({
           description: info.description,
-          inputSchema: undefined,
+          inputSchema: info.inputSchema,
           name: fullName,
         });
         dynamicByModule.set(info.module, existing);

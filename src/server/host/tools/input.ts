@@ -138,7 +138,7 @@ const iosInputNotSupported = (toolName: string): AppTargetError => {
 export const tapTool = (runner: ProcessRunner): HostToolHandler => {
   return {
     description:
-      'Prefer fiber_tree__invoke for React-rendered components, or fiber_tree__find_all with withBounds: true + bounds.centerX/centerY for OS-gesture testing. Use this raw-coordinate tap only for non-React surfaces (system dialogs, keyboard, WebView). Tap at absolute pixel coordinates (x, y) via adb shell input tap. Top-left origin. iOS support is a planned follow-up via WebDriverAgent.',
+      'Prefer fiber_tree__invoke for React-rendered components, or fiber_tree__find_all with select: ["mcpId", "name", "bounds"] + bounds.centerX/centerY for OS-gesture testing. Use this raw-coordinate tap only for non-React surfaces (system dialogs, keyboard, WebView). Tap at absolute pixel coordinates (x, y) via adb shell input tap. Top-left origin. iOS support is a planned follow-up via WebDriverAgent.',
     handler: async (args, ctx) => {
       const resolved = await resolveDevice(ctx, parseResolveOptions(args), runner);
       if (!resolved.ok) {

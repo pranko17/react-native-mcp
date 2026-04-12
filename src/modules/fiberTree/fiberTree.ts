@@ -124,10 +124,15 @@ export const fiberTreeModule = (options?: FiberTreeModuleOptions): McpModule => 
 - within: "Button:1/Pressable" — nested path with index
 
 ## Coordinates (host__tap targets)
-- Pass \`withBounds: true\` to find_all or get_component to receive \`bounds: {x, y, width, height, centerX, centerY}\` in PHYSICAL PIXELS.
-- Use bounds.centerX/centerY directly with host__tap — no PixelRatio math, no screenshot scaling.
-- bounds is null/absent only when the component has no host view yet (unmounted, virtualized off-screen).
-- Off by default because measuring adds a native bridge round-trip per match — opt in only when you need tap coordinates.
+- Pass \`select: ["mcpId", "name", "bounds"]\` to find_all to get tap coordinates without heavy props.
+- bounds = {x, y, width, height, centerX, centerY} in PHYSICAL PIXELS.
+- Use bounds.centerX/centerY directly with host__tap — no scaling needed.
+- bounds is null only when the component has no host view (unmounted, virtualized off-screen).
+
+## Saving tokens with select
+- \`select\` controls which fields appear in each result: mcpId, name, testID, props, bounds.
+- Default (no select): all fields except bounds. Include "bounds" for tap coordinates.
+- Omit "props" to cut response size ~90% when you only need names/IDs.
 
 ## Tips
 - mcpId is stable across renders (format: ComponentName:file:line)
@@ -187,7 +192,7 @@ export const fiberTreeModule = (options?: FiberTreeModuleOptions): McpModule => 
       },
       find_all: {
         description:
-          'Find all components matching a query (by testID, name, text, or props presence). Supports within for scoped search. Pass withBounds: true to also receive physical-pixel bounds for each match — use bounds.centerX/centerY directly with host__tap.',
+          'Find all components matching a query (by testID, name, text, or props presence). Supports within for scoped search. Use select to control which fields are returned — e.g. select: ["mcpId", "name", "bounds"] for tap targeting without heavy props.',
         handler: async (args) => {
           const rootError = requireRoot();
           if (rootError) return rootError;
@@ -209,17 +214,31 @@ export const fiberTreeModule = (options?: FiberTreeModuleOptions): McpModule => 
             text: args.text as string | undefined,
           };
 
-          const withBounds = args.withBounds === true;
+          const defaultFields = ['mcpId', 'name', 'props', 'testID'];
+          const fields = new Set(
+            Array.isArray(args.select) ? (args.select as string[]) : defaultFields
+          );
+
           const fibers = findAllByQuery(root, query);
           return Promise.all(
             fibers.map(async (fiber) => {
-              return {
-                bounds: withBounds ? await measureFiber(fiber) : undefined,
-                mcpId: fiber.memoizedProps?.['data-mcp-id'],
-                name: getComponentName(fiber),
-                props: serializeProps(fiber.memoizedProps),
-                testID: fiber.memoizedProps?.testID,
-              };
+              const result: Record<string, unknown> = {};
+              if (fields.has('bounds')) {
+                result.bounds = await measureFiber(fiber);
+              }
+              if (fields.has('mcpId')) {
+                result.mcpId = fiber.memoizedProps?.['data-mcp-id'];
+              }
+              if (fields.has('name')) {
+                result.name = getComponentName(fiber);
+              }
+              if (fields.has('props')) {
+                result.props = serializeProps(fiber.memoizedProps);
+              }
+              if (fields.has('testID')) {
+                result.testID = fiber.memoizedProps?.testID;
+              }
+              return result;
             })
           );
         },
@@ -230,13 +249,13 @@ export const fiberTreeModule = (options?: FiberTreeModuleOptions): McpModule => 
           },
           mcpId: { description: 'data-mcp-id to match', type: 'string' },
           name: { description: 'Component name to match', type: 'string' },
+          select: {
+            description:
+              'Fields to include in each result. Available: mcpId, name, testID, props, bounds. Default (when omitted): all except bounds. Include "bounds" for physical-pixel tap coordinates. Omit "props" to save tokens.',
+            type: 'array',
+          },
           testID: { description: 'testID to match', type: 'string' },
           text: { description: 'Text content to match (substring)', type: 'string' },
-          withBounds: {
-            description:
-              'When true, include physical-pixel bounds {x, y, width, height, centerX, centerY} for each match. Pass bounds.centerX/centerY to host__tap. Off by default — measure adds a native bridge round-trip per match.',
-            type: 'boolean',
-          },
           within: FIND_SCHEMA.within,
         },
       },
@@ -260,7 +279,7 @@ export const fiberTreeModule = (options?: FiberTreeModuleOptions): McpModule => 
       },
       get_component: {
         description:
-          'Find a component by testID, name, or text and return its details. Pass withBounds: true to include physical-pixel bounds on the root of the returned tree — use bounds.centerX/centerY directly with host__tap.',
+          'Find a component by testID, name, or text and return its details. Use select to control root-level fields — e.g. select: ["name", "bounds"] to include tap coordinates without props.',
         handler: async (args) => {
           const rootError = requireRoot();
           if (rootError) return rootError;
@@ -281,10 +300,16 @@ export const fiberTreeModule = (options?: FiberTreeModuleOptions): McpModule => 
 
           const depth = (args.depth as number) || DEFAULT_DEPTH;
           const serialized = serializeFiber(fiber, depth);
-          if (serialized && args.withBounds === true) {
-            const bounds = await measureFiber(fiber);
-            if (bounds) {
-              serialized.bounds = bounds;
+          if (serialized && Array.isArray(args.select)) {
+            const fields = new Set(args.select as string[]);
+            if (fields.has('bounds')) {
+              const bounds = await measureFiber(fiber);
+              if (bounds) {
+                serialized.bounds = bounds;
+              }
+            }
+            if (!fields.has('props')) {
+              serialized.props = {};
             }
           }
           return serialized;
@@ -293,13 +318,13 @@ export const fiberTreeModule = (options?: FiberTreeModuleOptions): McpModule => 
           depth: { description: 'Max depth to traverse children (default: 3)', type: 'number' },
           mcpId: { description: 'data-mcp-id to search for', type: 'string' },
           name: { description: 'Component name to search for', type: 'string' },
+          select: {
+            description:
+              'Fields to include on root node. Available: name, props, bounds. Include "bounds" for tap coordinates. Omit "props" to save tokens. Children are always included.',
+            type: 'array',
+          },
           testID: { description: 'testID to search for', type: 'string' },
           text: { description: 'Text content to search for', type: 'string' },
-          withBounds: {
-            description:
-              'When true, include physical-pixel bounds on the root of the returned tree. Pass bounds.centerX/centerY to host__tap. Off by default — measure adds a native bridge round-trip.',
-            type: 'boolean',
-          },
         },
       },
       get_props: {

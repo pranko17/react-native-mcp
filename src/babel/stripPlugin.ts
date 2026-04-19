@@ -115,12 +115,52 @@ export default function stripPlugin({ types: t }: { types: typeof BabelTypes }):
         }
       },
 
-      // Replace <McpProvider>{children}</McpProvider> with just {children}
+      // Replace <McpProvider>{children}</McpProvider> with just {children}.
+      // The node parent may be JSX (children can sit as siblings) or an
+      // expression (arrow body / return / paren — must yield exactly one
+      // expression). JSXText whitespace and JSXExpressionContainer wrappers
+      // need to be normalised so the replacement is valid in either context.
       JSXElement(path) {
         const opening = path.node.openingElement;
-        if (t.isJSXIdentifier(opening.name, { name: 'McpProvider' })) {
-          path.replaceWithMultiple(path.node.children);
+        if (!t.isJSXIdentifier(opening.name, { name: 'McpProvider' })) return;
+
+        const realChildren = path.node.children.filter((child) => {
+          if (t.isJSXText(child)) return child.value.trim() !== '';
+          return true;
+        });
+
+        if (realChildren.length === 0) {
+          path.remove();
+          return;
         }
+
+        const parent = path.parent;
+        const isJsxContext = t.isJSXElement(parent) || t.isJSXFragment(parent);
+        if (isJsxContext) {
+          path.replaceWithMultiple(realChildren);
+          return;
+        }
+
+        if (realChildren.length === 1) {
+          const [only] = realChildren;
+          if (!only) return;
+          // Unwrap {expr} back to expr in expression context — a bare
+          // JSXExpressionContainer is not a valid expression outside JSX.
+          if (t.isJSXExpressionContainer(only)) {
+            if (t.isJSXEmptyExpression(only.expression)) {
+              path.remove();
+            } else {
+              path.replaceWith(only.expression);
+            }
+            return;
+          }
+          path.replaceWith(only);
+          return;
+        }
+
+        path.replaceWith(
+          t.jsxFragment(t.jsxOpeningFragment(), t.jsxClosingFragment(), realChildren)
+        );
       },
     },
   };

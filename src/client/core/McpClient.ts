@@ -1,7 +1,12 @@
 import { type McpModule, type ToolHandler } from '@/client/models/types';
 import { McpConnection } from '@/client/utils/connection';
 import { ModuleRunner } from '@/client/utils/moduleRunner';
-import { MODULE_SEPARATOR, type ToolRequest } from '@/shared/protocol';
+import {
+  MODULE_SEPARATOR,
+  PROTOCOL_VERSION,
+  type ServerMessage,
+  type ToolRequest,
+} from '@/shared/protocol';
 
 const DEFAULT_PORT = 8347;
 const TAG = '\x1b[1;35m[rn-mcp-kit]\x1b[0m';
@@ -128,31 +133,56 @@ export class McpClient {
       this.sendRegistration();
     });
 
-    this.connection.onMessage((message: ToolRequest) => {
-      if (message.type === 'tool_request') {
-        this.log(`${ARROW_IN} ${formatTool(message.module, message.method)}`, message.args);
-        this.moduleRunner
-          .handleRequest(message)
-          .then((result) => {
-            this.log(`${ARROW_OUT} ${formatTool(message.module, message.method)}`, result);
-            this.connection.send({
-              id: message.id,
-              result,
-              type: 'tool_response',
-            });
-          })
-          .catch((error: Error) => {
-            this.log(`${CROSS} ${formatTool(message.module, message.method)}`, error.message);
-            this.connection.send({
-              error: error.message,
-              id: message.id,
-              type: 'tool_response',
-            });
-          });
+    this.connection.onMessage((message: ServerMessage) => {
+      switch (message.type) {
+        case 'server_hello':
+          if (message.protocolVersion !== PROTOCOL_VERSION) {
+            console.error(
+              `${TAG} Protocol version mismatch — server ${message.protocolVersion}, client ${PROTOCOL_VERSION}. Update the mcp-kit package on one side so they line up; disconnecting.`
+            );
+            this.connection.stopReconnect();
+            this.connection.dispose();
+            return;
+          }
+          this.log(`Server hello — protocol v${message.protocolVersion}`);
+          break;
+
+        case 'version_mismatch':
+          console.error(
+            `${TAG} Server rejected connection: ${message.reason} (server protocol v${message.serverVersion}, client protocol v${PROTOCOL_VERSION}). Not reconnecting.`
+          );
+          this.connection.stopReconnect();
+          break;
+
+        case 'tool_request':
+          this.handleToolRequest(message);
+          break;
       }
     });
 
     this.connection.connect();
+  }
+
+  private handleToolRequest(message: ToolRequest): void {
+    this.log(`${ARROW_IN} ${formatTool(message.module, message.method)}`, message.args);
+    this.moduleRunner
+      .handleRequest(message)
+      .then((result) => {
+        this.log(`${ARROW_OUT} ${formatTool(message.module, message.method)}`, result);
+        this.connection.send({
+          id: message.id,
+          result,
+          type: 'tool_response',
+        });
+      })
+      .catch((error: Error) => {
+        this.log(`${CROSS} ${formatTool(message.module, message.method)}`, error.message);
+        this.connection.send({
+          error: error.message,
+          id: message.id,
+          type: 'tool_response',
+        });
+      });
   }
 
   static initialize(options?: {
@@ -297,6 +327,7 @@ export class McpClient {
       label: this.identity.label,
       modules: descriptors,
       platform: this.identity.platform,
+      protocolVersion: PROTOCOL_VERSION,
       type: 'registration',
     });
   }

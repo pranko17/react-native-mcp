@@ -8,6 +8,7 @@ export class McpConnection {
   private openHandler: (() => void) | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
+  private reconnectDisabled = false;
 
   constructor(private readonly url: string) {}
 
@@ -56,6 +57,19 @@ export class McpConnection {
     this.openHandler = handler;
   }
 
+  /**
+   * Stop the reconnect loop. Used after a fatal, non-recoverable close such as
+   * a protocol-version mismatch — retrying won't change the outcome and would
+   * just spam errors.
+   */
+  stopReconnect(): void {
+    this.reconnectDisabled = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
   dispose(): void {
     this.disposed = true;
     if (this.reconnectTimer) {
@@ -66,7 +80,7 @@ export class McpConnection {
   }
 
   private scheduleReconnect(): void {
-    if (this.disposed) return;
+    if (this.disposed || this.reconnectDisabled) return;
     this.reconnectTimer = setTimeout(() => {
       this.connect();
     }, RECONNECT_INTERVAL);

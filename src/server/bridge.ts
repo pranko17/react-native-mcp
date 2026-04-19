@@ -7,7 +7,11 @@ import {
   type ClientMessage,
   MODULE_SEPARATOR,
   type ModuleDescriptor,
+  PROTOCOL_VERSION,
+  type ServerHelloMessage,
   type ToolRequest,
+  type VersionMismatchMessage,
+  WS_CLOSE_PROTOCOL_MISMATCH,
 } from '@/shared/protocol';
 
 const REQUEST_TIMEOUT = 10_000;
@@ -56,6 +60,14 @@ export class Bridge {
       this.wss = new WebSocketServer({ port: this.port });
 
       this.wss.on('connection', (ws) => {
+        // Greet the client with the protocol version so it can bail early if
+        // incompatible instead of waiting for its registration to be rejected.
+        const hello: ServerHelloMessage = {
+          protocolVersion: PROTOCOL_VERSION,
+          type: 'server_hello',
+        };
+        ws.send(JSON.stringify(hello));
+
         ws.on('message', (data) => {
           try {
             const message = JSON.parse(String(data)) as ClientMessage;
@@ -176,6 +188,24 @@ export class Bridge {
   private handleMessage(socket: WebSocket, message: ClientMessage): void {
     switch (message.type) {
       case 'registration': {
+        const clientVersion =
+          typeof message.protocolVersion === 'number' ? message.protocolVersion : undefined;
+        if (clientVersion !== PROTOCOL_VERSION) {
+          const reason =
+            clientVersion === undefined
+              ? `Client did not send protocolVersion — upgrade the app's mcp-kit to one that speaks protocol v${PROTOCOL_VERSION}.`
+              : `Client protocol v${clientVersion} does not match server v${PROTOCOL_VERSION}. Align mcp-kit versions across server and app.`;
+          const reject: VersionMismatchMessage = {
+            clientVersion,
+            reason,
+            serverVersion: PROTOCOL_VERSION,
+            type: 'version_mismatch',
+          };
+          socket.send(JSON.stringify(reject));
+          socket.close(WS_CLOSE_PROTOCOL_MISMATCH, reason);
+          break;
+        }
+
         const existingId = this.socketToClientId.get(socket);
         if (existingId) {
           // Re-registration on existing socket — just update the module list.

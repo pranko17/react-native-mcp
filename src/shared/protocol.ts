@@ -4,6 +4,19 @@ export const MODULE_SEPARATOR = '__';
 /** Prefix for dynamic tools registered via useMcpTool */
 export const DYNAMIC_PREFIX = `${MODULE_SEPARATOR}dynamic${MODULE_SEPARATOR}`;
 
+/**
+ * Wire-protocol version. Bumped on any breaking change to the messages below.
+ * Independent of the npm package semver — a major package release does not
+ * imply a protocol bump, and a protocol bump does not imply a new major.
+ *
+ * Introduced in package v2.0.0. Older clients/servers don't send or expect a
+ * version field; the handshake treats their absence as an incompatibility.
+ */
+export const PROTOCOL_VERSION = 1;
+
+/** WebSocket close code used when the server refuses the client over protocol mismatch. */
+export const WS_CLOSE_PROTOCOL_MISMATCH = 4010;
+
 // === RN App → Server: при подключении регистрирует модули ===
 
 export interface ModuleToolDescriptor {
@@ -21,6 +34,7 @@ export interface ModuleDescriptor {
 
 export interface RegistrationMessage {
   modules: ModuleDescriptor[];
+  protocolVersion: number;
   type: 'registration';
   appName?: string;
   appVersion?: string;
@@ -28,6 +42,30 @@ export interface RegistrationMessage {
   deviceId?: string;
   label?: string;
   platform?: string;
+}
+
+// === Server → RN App: handshake ===
+
+/**
+ * Server sends this immediately after accepting a WebSocket connection, before
+ * expecting any registration. A client whose PROTOCOL_VERSION doesn't match the
+ * server's must disconnect and surface a clear error to the developer.
+ */
+export interface ServerHelloMessage {
+  protocolVersion: number;
+  type: 'server_hello';
+}
+
+/**
+ * Server sends this when a client's registration is rejected over protocol
+ * incompatibility (missing or mismatched protocolVersion). Always followed by
+ * a WS close with code WS_CLOSE_PROTOCOL_MISMATCH.
+ */
+export interface VersionMismatchMessage {
+  reason: string;
+  serverVersion: number;
+  type: 'version_mismatch';
+  clientVersion?: number;
 }
 
 // === Server → RN App: вызов tool ===
@@ -86,4 +124,4 @@ export type ClientMessage =
   | ToolResponse
   | ToolUnregisterMessage;
 
-export type ServerMessage = ToolRequest;
+export type ServerMessage = ServerHelloMessage | ToolRequest | VersionMismatchMessage;

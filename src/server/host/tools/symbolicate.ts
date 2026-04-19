@@ -2,6 +2,8 @@ import { type HostToolHandler } from '@/server/host/types';
 
 const DEFAULT_METRO = 'http://localhost:8081';
 const METRO_TIMEOUT_MS = 5_000;
+const DEFAULT_MAX_FRAMES = 10;
+const MAX_FRAMES_CEILING = 100;
 
 interface StackFrame {
   column?: number;
@@ -47,15 +49,74 @@ const parseStackString = (stack: string): StackFrame[] => {
   return frames;
 };
 
+/**
+ * Shorten an absolute filesystem path by stripping the current working
+ * directory prefix. Leaves URLs and unrelated absolute paths untouched.
+ */
+const relativeToCwd = (file: string | undefined, cwd: string): string | undefined => {
+  if (!file) return file;
+  if (file.startsWith('http://') || file.startsWith('https://')) return file;
+  if (file.startsWith(cwd + '/')) return file.slice(cwd.length + 1);
+  if (file === cwd) return '.';
+  return file;
+};
+
+/**
+ * Apply token-saving transforms to a resolved stack:
+ * 1. Drop framework frames (`collapse: true` from Metro = node_modules / RN
+ *    internals) unless explicitly kept via includeFrameworkFrames.
+ * 2. Trim to `maxFrames` (from the top — where the actual cause lives).
+ * 3. Rewrite file paths relative to cwd unless fullPaths is set.
+ * 4. Drop `collapse` from output (already used for filtering).
+ */
+const trimFrames = (
+  frames: ResolvedFrame[],
+  opts: { fullPaths: boolean; includeFramework: boolean; maxFrames: number }
+): StackFrame[] => {
+  const filtered = opts.includeFramework
+    ? frames
+    : frames.filter((f) => {
+        return !f.collapse;
+      });
+  const limited = filtered.slice(0, opts.maxFrames);
+  const cwd = process.cwd();
+  return limited.map((f) => {
+    const out: StackFrame = {};
+    const file = opts.fullPaths ? f.file : relativeToCwd(f.file, cwd);
+    if (file) out.file = file;
+    if (typeof f.lineNumber === 'number') out.lineNumber = f.lineNumber;
+    if (typeof f.column === 'number' && f.column > 0) out.column = f.column;
+    if (f.methodName) out.methodName = f.methodName;
+    return out;
+  });
+};
+
 export const symbolicateTool = (): HostToolHandler => {
   return {
     description: `Resolve a JS stack trace via Metro's /symbolicate endpoint — maps bundled paths like "http://localhost:8081/index.bundle:12345:67" back to original sources like "src/components/Foo.tsx:42:10".
 
-Pass either a raw stack string (from errors__get_errors.stack) or a parsed array of frames (from log_box__get_logs[*].stack). No-ops gracefully when Metro is unreachable (returns { skipped: true, error }), so safe to call opportunistically.`,
+Pass either a raw stack string (from errors__get_errors.stack) or a parsed array of frames (from log_box__get_logs[*].stack). No-ops gracefully when Metro is unreachable (returns { skipped: true, error }), so safe to call opportunistically.
+
+TOKEN-SAVING DEFAULTS
+  - node_modules / RN-internal frames (collapse: true from Metro) are dropped.
+  - Only the top ${DEFAULT_MAX_FRAMES} frames returned.
+  - Absolute paths are shortened relative to the MCP server's cwd.
+  Opt-out via includeFrameworkFrames / maxFrames / fullPaths.`,
     handler: async (args) => {
       const stack = args.stack as string | undefined;
       const frames = args.frames as StackFrame[] | undefined;
       const metroUrl = ((args.metroUrl as string) || DEFAULT_METRO).replace(/\/$/, '');
+
+      const includeFramework = args.includeFrameworkFrames === true;
+      const fullPaths = args.fullPaths === true;
+      const maxFrames = Math.max(
+        1,
+        Math.min(
+          MAX_FRAMES_CEILING,
+          typeof args.maxFrames === 'number' ? Math.floor(args.maxFrames) : DEFAULT_MAX_FRAMES
+        )
+      );
+      const trimOpts = { fullPaths, includeFramework, maxFrames };
 
       let rawFrames: StackFrame[];
       if (Array.isArray(frames) && frames.length > 0) {
@@ -85,16 +146,33 @@ Pass either a raw stack string (from errors__get_errors.stack) or a parsed array
         if (!res.ok) {
           return {
             error: `Metro responded ${res.status}`,
-            frames: rawFrames,
+            frames: trimFrames(rawFrames, trimOpts),
             skipped: true,
           };
         }
         const json = (await res.json()) as { stack?: ResolvedFrame[] };
-        return { frames: json.stack ?? rawFrames };
+        const resolved: ResolvedFrame[] = json.stack ?? rawFrames;
+        const totalFrames = includeFramework
+          ? resolved.length
+          : resolved.filter((f) => {
+              return !f.collapse;
+            }).length;
+        const trimmed = trimFrames(resolved, trimOpts);
+        const result: {
+          frames: StackFrame[];
+          totalFrames: number;
+          droppedFrameworkFrames?: number;
+          truncated?: true;
+        } = { frames: trimmed, totalFrames };
+        if (!includeFramework) {
+          result.droppedFrameworkFrames = resolved.length - totalFrames;
+        }
+        if (totalFrames > trimmed.length) result.truncated = true;
+        return result;
       } catch (err) {
         return {
           error: `Metro at ${metroUrl} unreachable: ${(err as Error).message}`,
-          frames: rawFrames,
+          frames: trimFrames(rawFrames, trimOpts),
           skipped: true,
         };
       }
@@ -114,6 +192,20 @@ Pass either a raw stack string (from errors__get_errors.stack) or a parsed array
           ],
         ],
         type: 'array',
+      },
+      fullPaths: {
+        description:
+          'Return absolute file paths instead of ones relative to the MCP server cwd. Default false.',
+        type: 'boolean',
+      },
+      includeFrameworkFrames: {
+        description:
+          'Keep node_modules / React Native internal frames (marked collapse: true by Metro). Default false — framework noise is dropped to save tokens.',
+        type: 'boolean',
+      },
+      maxFrames: {
+        description: `Max frames to return after filtering (top-down). Default ${DEFAULT_MAX_FRAMES}, max ${MAX_FRAMES_CEILING}.`,
+        type: 'number',
       },
       metroUrl: {
         description: `Base URL of the Metro dev server. Default "${DEFAULT_METRO}".`,

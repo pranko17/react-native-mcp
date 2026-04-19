@@ -1,52 +1,27 @@
 # react-native-mcp-kit
 
-A bidirectional [MCP](https://modelcontextprotocol.io/) bridge that connects AI agents to running React Native apps. The server is a proxy — all business logic runs inside your RN app.
+**See, drive, and debug a running React Native app from an AI agent — or from any other MCP client.**
+
+`react-native-mcp-kit` connects a running RN app (on simulator, emulator, or physical device) to any process that speaks the [Model Context Protocol](https://modelcontextprotocol.io). You wrap your app in one provider, add a babel plugin, point your AI tool at a small Node server that ships with the package, and every interesting thing inside the app becomes addressable: component trees, navigation state, network traffic, React Query cache, logs, errors, translations, storage — plus the OS gesture pipeline (taps, swipes, text input, screenshots) via a bundled binary that needs no WebDriverAgent or idb.
 
 ```
-AI Agent  --stdio/MCP-->  MCP Server (Node.js)  --WebSocket-->  RN App (device)
+AI Agent / Cursor / Claude Code --stdio/MCP--> Node server --WebSocket--> RN app (device)
+                                                    │
+                                                    └─ host tools (adb / xcrun / ios-hid) --USB/sim--> device
 ```
 
-## Table of Contents
+## Why would I want this?
 
-- [Features](#features)
-- [Quick Start](#quick-start)
-- [Modules](#modules)
-  - [alert](#alert)
-  - [fiberTree](#fibertree)
-  - [console](#console)
-  - [device](#device)
-  - [errors](#errors)
-  - [i18next](#i18next)
-  - [navigation](#navigation)
-  - [network](#network)
-  - [reactQuery](#reactquery)
-  - [storage](#storage)
-- [Hooks](#hooks)
-  - [useMcpState](#usemcpstate)
-  - [useMcpTool](#usemcptool)
-  - [useMcpModule](#usemcpmodule)
-- [Babel Plugins](#babel-plugins)
-  - [testIdPlugin](#testidplugin)
-  - [stripPlugin](#stripplugin)
-- [Dev vs Production](#dev-vs-production)
-- [MCP Server Tools](#mcp-server-tools)
-- [Custom Modules](#custom-modules)
-- [Debug Logging](#debug-logging)
-- [API Reference](#api-reference)
+A few concrete scenarios this unlocks:
 
-## Features
+- **End-to-end automation without a separate test harness.** Describe a multi-step flow in natural language — "sign in, open settings, flip the notifications toggle, verify the confirmation toast" — and an agent walks it: locates components by name/testID, fires real taps through the OS gesture pipeline, asserts on the resulting state, and reports back. The same flow works as a scripted smoke test driven by any MCP client.
+- **Interactive inspection of a live app from your editor.** Ask "what screen am I on?", "what React Query keys are stale?", "what did the last POST return?", "which translation keys are missing in the current locale?" — no rebuild, no DevTools panel, no "add more logs and reload" loop.
+- **Debug gesture-arbitration bugs that unit tests can't catch.** `host__tap` goes through the real iOS/Android touch pipeline, so issues like "the close button inside a horizontally-scrolling list swallows taps" surface naturally. `fiber_tree__invoke` bypasses the pipeline for the rare cases you want to call `onPress` directly.
+- **Write your own tools from inside components.** `useMcpTool`/`useMcpState`/`useMcpModule` let a component expose a named state key or an ad-hoc tool. Agents can then read feature-flag state, force a particular loading scenario, or trigger an internal-only action without you shipping a debug menu.
 
-- **10 built-in modules** — navigation, fiber tree, network, console, storage, device, errors, i18next, React Query, alerts
-- **React fiber inspection** — walk the component tree, read props, invoke callbacks, call ref methods
-- **Developer hooks** — expose state and tools from any component with `useMcpState` and `useMcpTool`
-- **Navigation history** — full log of screen transitions with timestamps and slice access
-- **Modular** — register only the modules you need, or write your own with `description` for AI context
-- **Zero production overhead** — Babel strip plugin removes all MCP code from prod builds
-- **Babel testID plugin** — auto-adds `data-mcp-id` attributes for component identification
+Everything the library adds to your bundle is stripped in production builds via the companion babel plugin — so you can wire it up once and leave it in, without shipping it to users.
 
-## Quick Start
-
-### 1. Install
+## Install
 
 ```bash
 yarn add react-native-mcp-kit
@@ -54,54 +29,75 @@ yarn add react-native-mcp-kit
 npm install react-native-mcp-kit
 ```
 
-### 2. Initialize in your app
+**Peer dependencies**: `react >= 19`, `react-native >= 0.79`, `react-native-device-info >= 10`.
 
-```typescript
-import {
-  McpClient,
-  McpProvider,
-  consoleModule,
-  deviceModule,
-  fiberTreeModule,
-  navigationModule,
-  networkModule,
-} from 'react-native-mcp-kit';
-import { createRef } from 'react';
-import { View } from 'react-native';
+## Setup
 
-const rootRef = createRef<View>();
-const navigationRef = createNavigationContainerRef();
+Three pieces need to be wired up: the **provider** at the root of your RN app, a pair of **babel plugins** so components are identifiable and production builds stay clean, and the **MCP server** that the AI agent talks to.
 
-// Initialize client (call once, before any module registration)
-const client = McpClient.initialize({ debug: true });
+### 1. Wrap the app in `McpProvider`
 
-// Register modules
-client.registerModules([
-  consoleModule(),
-  deviceModule(),
-  fiberTreeModule({ rootRef }),
-  navigationModule(navigationRef),
-  networkModule(),
-]);
-```
-
-### 3. Wrap your app with McpProvider
+Put it at the root of the tree. Optional props opt specific modules in — omit a prop and that module isn't registered.
 
 ```tsx
-const App = () => {
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
+import { McpProvider } from 'react-native-mcp-kit';
+
+const navigationRef = createNavigationContainerRef();
+
+export const App = () => {
   return (
-    <View ref={rootRef} collapsable={false} style={{ flex: 1 }}>
-      <NavigationContainer ref={navigationRef}>
-        <McpProvider>{/* your app */}</McpProvider>
-      </NavigationContainer>
-    </View>
+    <McpProvider
+      debug
+      // Optional — each prop opts a module in:
+      navigationRef={navigationRef} // → navigation module
+      queryClient={queryClient} // → reactQuery module
+      i18n={i18nInstance} // → i18next module
+      storages={[{ name: 'mmkv', adapter: mmkvAdapter }]} // → storage module
+    >
+      <NavigationContainer ref={navigationRef}>{/* your app */}</NavigationContainer>
+    </McpProvider>
   );
 };
 ```
 
-### 4. Configure the MCP server
+These modules register automatically on mount — no prop required:
 
-Add to your project's `.mcp.json`:
+`alert`, `console`, `device`, `errors`, `network`, `fiber_tree`
+
+If the dependency lives deeper in the tree (e.g. the `QueryClient` is created inside a feature-specific provider), skip the prop and use `useMcpModule` there instead — see [Hooks](#hooks).
+
+### 2. Babel plugins — why and how
+
+Two plugins ship under `react-native-mcp-kit/babel`. You want both.
+
+**`test-id-plugin`** — compiles every capitalized JSX element with a stable `data-mcp-id="ComponentName:path/to/file:line"` attribute. `fiber_tree` uses this attribute as an identifier that survives renders, minification, and refactors. Without the plugin you can still find components by `name` or `testID`, but mcpId is what makes "find the nth occurrence of `ComponentName` on a specific line" reliable across a large codebase. Run this in **development**.
+
+**`strip-plugin`** — strips every trace of mcp-kit from a bundle: imports from `react-native-mcp-kit`, calls to `McpClient.*` / `useMcpState` / `useMcpTool` / `useMcpModule`, the `<McpProvider>` JSX wrapper (its children are preserved), and every `data-mcp-id` attribute. Run this in **production** and none of the library code reaches your users.
+
+```js
+// babel.config.js
+module.exports = (api) => {
+  return {
+    presets: ['module:@react-native/babel-preset'],
+    plugins: [
+      __DEV__
+        ? 'react-native-mcp-kit/babel/test-id-plugin'
+        : 'react-native-mcp-kit/babel/strip-plugin',
+    ],
+  };
+};
+```
+
+Both plugins accept options (attribute name, include/exclude lists, extra import sources, extra function names to strip) when you need to customize — pass them as the 2nd array element in the usual babel style. Defaults cover the common case.
+
+After editing `babel.config.js`, clear Metro's cache once: `yarn start --reset-cache`.
+
+### 3. Configure the MCP server
+
+The MCP server is a Node process that brokers between your agent (stdio/MCP) and the RN app (WebSocket). It ships as a bin in the package — `npx react-native-mcp-kit` boots it.
+
+Point your agent at it via the usual MCP config. For Claude Code / Cursor / Continue etc., a project-local `.mcp.json`:
 
 ```json
 {
@@ -114,697 +110,222 @@ Add to your project's `.mcp.json`:
 }
 ```
 
-Or with a custom port:
+**CLI flags:**
 
-```json
-{
-  "mcpServers": {
-    "react-native-mcp-kit": {
-      "command": "npx",
-      "args": ["react-native-mcp-kit", "--port", "8347"]
-    }
-  }
+- `--port <number>` — WebSocket port the RN app connects to (default `8347`).
+- `--no-host` — disable the host module (the server no longer exposes `host__tap`, `host__screenshot`, etc.). Use this when you only want in-app modules.
+
+For **Android emulators** you need the adb port forward so the app can reach the server:
+
+```bash
+adb reverse tcp:8347 tcp:8347
+```
+
+iOS simulators share localhost with the host machine, no forwarding needed.
+
+### 4. Run
+
+Start Metro + your app. The `McpProvider` connects to `ws://localhost:8347` on mount. The agent calls `connection_status` to confirm; after that every tool is callable.
+
+## `McpProvider` reference
+
+```ts
+interface McpProviderProps {
+  children: ReactNode;
+  debug?: boolean; // colored console logs for all MCP traffic
+  navigationRef?: NavigationRef; // → navigationModule
+  queryClient?: QueryClientLike; // → reactQueryModule
+  i18n?: I18nLike; // → i18nextModule
+  storages?: NamedStorage[]; // → storageModule(...storages)
+  modules?: McpModule[]; // arbitrary extra modules
 }
 ```
 
-### 5. Connect
+Wrap your whole app in it — every optional prop opts a module in when supplied.
 
-1. Start Metro and run your app
-2. The AI agent connects via MCP and can now inspect and interact with your app
-3. For Android emulator, run `adb reverse tcp:8347 tcp:8347` to forward the port
+## MCP server tools
+
+The Node server itself exposes a small set of entry-point tools for agents: discovering connected clients, browsing what they can do, reading state exposed via `useMcpState`, and dispatching any in-app tool through `call`. Agents see these straight through the MCP interface; you don't register or configure anything on your side.
+
+## Host tools (device-level control)
+
+When the `host` module is enabled (the default), the server also exposes tools that operate **on the host machine** — they run `adb` / `xcrun simctl` / a bundled `ios-hid` binary. These work even when the RN app is frozen, not launched yet, or between reloads.
+
+What you get:
+
+- **Real OS input** — tap, swipe, type, press semantic keys. Goes through the real iOS/Android touch pipeline, so Pressable feedback, gesture responders, and hit testing all run as if a human touched the device.
+- **Screenshots** with automatic diffing — the server returns `unchanged:true` when the screen hasn't changed since the last capture, so polling is cheap.
+- **App lifecycle** — launch, terminate, restart an installed app. Useful for cold-start assertions or recovering from a crashed state without clicking the simulator.
+- **Device enumeration** — list all visible simulators / emulators / devices, annotated with which ones have a live MCP client.
+
+iOS input goes through a bundled `ios-hid` Swift binary. **No WebDriverAgent, no idb, no Appium server.**
+
+## Hooks
+
+For when the thing you want to expose lives deeper than `McpProvider`:
+
+```ts
+useMcpState(key, factory, deps)    // expose reactive state to the agent
+useMcpTool(name, factory, deps)    // register an ad-hoc tool tied to the component lifecycle
+useMcpModule(factory, deps)        // register a whole module from inside a component
+```
+
+Each follows `useMemo` / `useEffect` semantics — the factory re-runs on dep changes, registration cleans up on unmount.
+
+```tsx
+const UserProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
+
+  useMcpState('user', () => ({ id: user?.id, loggedIn: user !== null }), [user]);
+
+  useMcpTool('logout', () => ({
+    description: 'Log out the current user',
+    handler: async () => { await logout(); return { success: true }; },
+  }), [logout]);
+
+  return <UserContext.Provider value={user}>{children}</UserContext.Provider>;
+};
+```
 
 ## Modules
 
-| Module                    | Factory                         | Description                                                     |
-| ------------------------- | ------------------------------- | --------------------------------------------------------------- |
-| [alert](#alert)           | `alertModule()`                 | Show native alerts with custom buttons and styles               |
-| [fiberTree](#fibertree)   | `fiberTreeModule({ rootRef })`  | React fiber tree inspection, invoke callbacks, call ref methods |
-| [console](#console)       | `consoleModule(options?)`       | Capture console.log/warn/error/info/debug                       |
-| [device](#device)         | `deviceModule()`                | Device info, app state, keyboard, linking, reload               |
-| [errors](#errors)         | `errorsModule(options?)`        | Capture unhandled errors and promise rejections                 |
-| [i18next](#i18next)       | `i18nextModule(i18n)`           | Translation inspection and language management                  |
-| [navigation](#navigation) | `navigationModule(ref)`         | Navigation state, history, navigate, push, pop, replace, reset  |
-| [network](#network)       | `networkModule(options?)`       | HTTP request/response interception                              |
-| [reactQuery](#reactquery) | `reactQueryModule(queryClient)` | React Query cache inspection and management                     |
-| [storage](#storage)       | `storageModule(...storages)`    | Key-value storage inspection (MMKV, AsyncStorage, custom)       |
+| Module                    | Factory                         | Requires                                  |
+| ------------------------- | ------------------------------- | ----------------------------------------- |
+| [alert](#alert)           | `alertModule()`                 | —                                         |
+| [console](#console)       | `consoleModule(options?)`       | —                                         |
+| [device](#device)         | `deviceModule()`                | —                                         |
+| [errors](#errors)         | `errorsModule(options?)`        | —                                         |
+| [fiber_tree](#fiber_tree) | `fiberTreeModule({ rootRef })`  | root ref (auto-supplied by `McpProvider`) |
+| [i18n](#i18n)             | `i18nextModule(i18n)`           | i18next instance                          |
+| [navigation](#navigation) | `navigationModule(ref)`         | React Navigation ref                      |
+| [network](#network)       | `networkModule(options?)`       | —                                         |
+| [query](#query)           | `reactQueryModule(queryClient)` | `QueryClient`                             |
+| [storage](#storage)       | `storageModule(...storages)`    | one or more `NamedStorage`                |
 
----
+The full tool list for every module is always available via `list_tools` at runtime — the sections below describe what each module gives you, not each tool.
 
 ### alert
 
-Show native alert dialogs with custom buttons and styles.
-
-```typescript
-client.registerModules([alertModule()]);
-```
-
-| Tool   | Description       | Args                                                       |
-| ------ | ----------------- | ---------------------------------------------------------- |
-| `show` | Show alert dialog | `title?: string`, `message?: string`, `buttons?: Button[]` |
-
-Buttons can be strings or objects with style:
-
-```typescript
-// Simple
-call(tool: "alert__show", args: '{"title": "Confirm", "buttons": ["Cancel", "OK"]}')
-
-// With styles
-call(tool: "alert__show", args: '{"title": "Delete?", "buttons": [{"text": "Cancel", "style": "cancel"}, {"text": "Delete", "style": "destructive"}]}')
-```
-
-Button styles: `default`, `cancel`, `destructive`. Returns `{ button: string, index: number }`. Timeout: 60s.
-
----
-
-### fiberTree
-
-React fiber tree inspection with the ability to invoke callbacks and call ref methods.
-
-```typescript
-client.registerModules([fiberTreeModule({ rootRef })]);
-```
-
-**Inspection tools:**
-
-| Tool            | Description                  | Args                                                                 |
-| --------------- | ---------------------------- | -------------------------------------------------------------------- |
-| `get_tree`      | Get full component tree      | `depth?: number` (default: 10)                                       |
-| `get_component` | Find a component             | `name?`, `testID?`, `text?`, `mcpId?`, `within?`, `index?`, `depth?` |
-| `find_all`      | Find all matching components | `name?`, `testID?`, `text?`, `mcpId?`, `hasProps?`, `within?`        |
-| `get_props`     | Get component props          | same find params                                                     |
-| `get_children`  | Get component children       | same find params, `depth?`                                           |
-
-**Interaction tools:**
-
-| Tool              | Description                | Args                                                |
-| ----------------- | -------------------------- | --------------------------------------------------- |
-| `invoke`          | Call any callback prop     | find params, `callback: string`, `args?: unknown[]` |
-| `call_ref`        | Call method on native ref  | find params, `method: string`, `args?: unknown[]`   |
-| `get_ref_methods` | List available ref methods | find params                                         |
-
-**Finding components:**
-
-Components can be found by `testID`, `name`, `text`, or `mcpId` (from the Babel testID plugin). Use `within` to scope the search to children of a specific component:
-
-```typescript
-// Find by testID
-call(tool: "fiber_tree__get_component", args: '{"testID": "login-button"}')
-
-// Find by name within a parent
-call(tool: "fiber_tree__get_component", args: '{"name": "Pressable", "within": "LoginForm"}')
-
-// Use index for multiple matches (0-based)
-call(tool: "fiber_tree__get_component", args: '{"name": "TextInput", "within": "LoginForm", "index": 1}')
-
-// Nested within path with index
-call(tool: "fiber_tree__get_component", args: '{"name": "Text", "within": "Button:1/Pressable"}')
-```
-
-**Invoking callbacks:**
-
-```typescript
-// Press a button
-call(tool: "fiber_tree__invoke", args: '{"testID": "submit-btn", "callback": "onPress"}')
-
-// Type text
-call(tool: "fiber_tree__invoke", args: '{"mcpId": "Input:screens/Login:42", "callback": "onChangeText", "args": ["user@example.com"]}')
-
-// Toggle checkbox with custom args
-call(tool: "fiber_tree__invoke", args: '{"name": "Checkbox", "within": "TermsForm", "callback": "onPress", "args": [true]}')
-```
-
-**Calling ref methods:**
-
-```typescript
-// Focus an input
-call(tool: "fiber_tree__call_ref", args: '{"testID": "email-input", "method": "focus"}')
-
-// List available methods
-call(tool: "fiber_tree__get_ref_methods", args: '{"testID": "email-input"}')
-```
-
----
+Show a native `Alert.alert` from the agent with any combination of `default` / `cancel` / `destructive` buttons and get back which one was pressed. Useful for "are you sure?" prompts driven by the agent, or for surfacing a decision point to a human tester.
 
 ### console
 
-Intercepts console output with a ring buffer.
+Tails `console.log` / `warn` / `error` / `info` / `debug` into a ring buffer the agent can read or clear. Complex values (Errors, Dates, class instances, cyclic refs, functions, Symbols) are serialized safely. Buffer size, captured levels, and whether stack traces are collected are all configurable.
 
-```typescript
-client.registerModules([consoleModule()]);
-
-// With options
-client.registerModules([
-  consoleModule({
-    maxEntries: 200,
-    levels: ['error', 'warn', 'log'],
-    stackTrace: ['error', 'warn'], // or true for all levels
-  }),
-]);
+```ts
+consoleModule({
+  maxEntries: 200,
+  levels: ['error', 'warn', 'log'],
+  stackTrace: ['error', 'warn'], // or `true` / `false`
+});
 ```
-
-| Tool           | Description      | Args                               |
-| -------------- | ---------------- | ---------------------------------- |
-| `get_logs`     | Get all logs     | `level?: string`, `limit?: number` |
-| `get_errors`   | Get error logs   | `limit?: number`                   |
-| `get_warnings` | Get warning logs | `limit?: number`                   |
-| `get_info`     | Get info logs    | `limit?: number`                   |
-| `get_debug`    | Get debug logs   | `limit?: number`                   |
-| `clear_logs`   | Clear all logs   | —                                  |
-
-Serializes complex values: functions, class instances, circular refs, Errors, Dates, RegExp, Symbols.
-
----
 
 ### device
 
-Device info and system APIs.
-
-```typescript
-client.registerModules([deviceModule()]);
-```
-
-| Tool                     | Description                                                                         | Args                |
-| ------------------------ | ----------------------------------------------------------------------------------- | ------------------- |
-| `get_device_info`        | Comprehensive device info (platform, dimensions, pixel ratio, appearance, dev mode) | —                   |
-| `get_platform`           | Platform (OS, version, constants)                                                   | —                   |
-| `get_dimensions`         | Screen and window dimensions                                                        | —                   |
-| `get_pixel_ratio`        | Pixel density and font scale                                                        | —                   |
-| `get_appearance`         | Color scheme (light/dark)                                                           | —                   |
-| `get_app_state`          | App state (active/background/inactive)                                              | —                   |
-| `get_accessibility_info` | Accessibility settings                                                              | —                   |
-| `get_keyboard_state`     | Keyboard visibility and metrics                                                     | —                   |
-| `dismiss_keyboard`       | Dismiss keyboard                                                                    | —                   |
-| `open_url`               | Open URL in appropriate app                                                         | `url: string`       |
-| `can_open_url`           | Check if URL can be opened                                                          | `url: string`       |
-| `get_initial_url`        | Get deep link that launched app                                                     | —                   |
-| `open_settings`          | Open app settings                                                                   | —                   |
-| `reload`                 | Reload app (dev only)                                                               | —                   |
-| `vibrate`                | Vibrate device                                                                      | `duration?: number` |
-
----
+Read-only view of platform facts (OS, version, dimensions in DP and physical pixels, pixel ratio, appearance, app state, accessibility settings, keyboard state) plus a few imperative actions — open URLs / settings, dismiss the keyboard, vibrate, reload the JS bundle in dev.
 
 ### errors
 
-Captures unhandled JS errors and promise rejections.
+Captures unhandled JS errors (via `ErrorUtils.setGlobalHandler`) and unhandled promise rejections with deduplication, so the agent can inspect what crashed without tailing native logs.
 
-```typescript
-client.registerModules([errorsModule()]);
+### fiber_tree
 
-// With options
-client.registerModules([errorsModule({ maxEntries: 100 })]);
-```
+The heart of UI inspection. The agent walks the component tree, finds elements by name / testID / text / which callback props they have, reads their props, calls their ref methods, and invokes arbitrary callbacks on them. Coordinates it returns (`bounds`) are in physical pixels and pair directly with `host__tap` / `host__swipe`.
 
-| Tool           | Description           | Args                                                   |
-| -------------- | --------------------- | ------------------------------------------------------ |
-| `get_errors`   | Get captured errors   | `source?: string`, `fatal?: boolean`, `limit?: number` |
-| `get_fatal`    | Get fatal errors only | `limit?: number`                                       |
-| `get_stats`    | Error statistics      | —                                                      |
-| `clear_errors` | Clear all errors      | —                                                      |
+### i18n
 
-Error sources: `global` (ErrorUtils), `promise` (unhandled rejections). Deduplicates within 100ms window.
-
----
-
-### i18next
-
-Translation inspection and language management. Accepts an i18next instance.
-
-```typescript
-import i18n from './i18n';
-
-client.registerModules([i18nextModule(i18n)]);
-```
-
-| Tool              | Description                                       | Args                                     |
-| ----------------- | ------------------------------------------------- | ---------------------------------------- |
-| `get_info`        | Current language, available languages, namespaces | —                                        |
-| `get_resource`    | Get full translation resource                     | `language?`, `namespace?`                |
-| `get_keys`        | List translation keys                             | `language?`, `namespace?`                |
-| `translate`       | Translate a key                                   | `key: string`, `options?: string` (JSON) |
-| `search`          | Search keys and values                            | `query: string`, `language?`             |
-| `change_language` | Change current language                           | `language: string`                       |
-
-```typescript
-// Translate with interpolation
-call(tool: "i18n__translate", args: '{"key": "welcome", "options": "{\"name\": \"John\"}"}')
-
-// Search translations
-call(tool: "i18n__search", args: '{"query": "password"}')
-```
-
----
+Inspect and manipulate an `i18next` instance: list keys, dump a whole translation resource, run a substring search, translate with interpolation, switch language at runtime.
 
 ### navigation
 
-Full navigation control with history tracking. Accepts a React Navigation ref.
-
-```typescript
-import { createNavigationContainerRef } from '@react-navigation/native';
-
-const navigationRef = createNavigationContainerRef();
-
-client.registerModules([navigationModule(navigationRef)]);
-```
-
-| Tool                      | Description                          | Args                                               |
-| ------------------------- | ------------------------------------ | -------------------------------------------------- |
-| `get_state`               | Full navigation state tree           | —                                                  |
-| `get_current_route`       | Current focused route                | —                                                  |
-| `get_current_route_state` | Current route with nested state      | —                                                  |
-| `get_history`             | Log of all screen transitions        | `offset?`, `limit?`, `full?: boolean`              |
-| `navigate`                | Navigate to screen (reuses existing) | `screen: string`, `params?: object`                |
-| `push`                    | Push new screen onto stack           | `screen: string`, `params?: object`                |
-| `pop`                     | Pop screens                          | `count?: number`                                   |
-| `pop_to`                  | Pop to specific screen               | `screen: string`, `params?: object`                |
-| `pop_to_top`              | Pop to first screen                  | —                                                  |
-| `go_back`                 | Go back to previous screen           | —                                                  |
-| `replace`                 | Replace current screen               | `screen: string`, `params?: object`                |
-| `reset`                   | Reset navigation state               | `routes: Array<{name, params?}>`, `index?: number` |
-
-**Navigation history:**
-
-```typescript
-// Get simplified history (name, key, params, timestamp)
-call(tool: "navigation__get_history")
-
-// Get last 5 transitions
-call(tool: "navigation__get_history", args: '{"limit": 5}')
-
-// Get full navigation state for each transition
-call(tool: "navigation__get_history", args: '{"full": true}')
-
-// Slice: skip first 10, get next 5
-call(tool: "navigation__get_history", args: '{"offset": 10, "limit": 5}')
-```
-
----
+Drive React Navigation from outside — navigate, push, pop, replace, reset — and read the current route, nested state, and the last 100 transitions with timestamps. Needs a `createNavigationContainerRef()` passed to both `<NavigationContainer ref={…}>` and `<McpProvider navigationRef={…}>` (or `navigationModule(ref)` directly).
 
 ### network
 
-Intercepts `fetch` and `XMLHttpRequest`. Captures request/response bodies, headers, status, duration.
+Intercepts `fetch` and `XMLHttpRequest` into a ring buffer — method, URL, status, duration, headers, bodies. The agent can list recent traffic, filter by method/status/URL, find a request by URL substring, see what's in flight, or just the failures. WebSocket, Metro, and symbolicate traffic are auto-ignored.
 
-```typescript
-client.registerModules([networkModule()]);
-
-// With options
-client.registerModules([
-  networkModule({
-    maxEntries: 200,
-    includeBodies: true,
-    ignoreUrls: ['https://analytics.example.com', /\.png$/],
-  }),
-]);
+```ts
+networkModule({
+  maxEntries: 200,
+  includeBodies: true,
+  ignoreUrls: ['https://analytics.example.com', /\.png$/],
+});
 ```
 
-| Tool             | Description                    | Args                                   |
-| ---------------- | ------------------------------ | -------------------------------------- |
-| `get_requests`   | Get captured requests          | `method?`, `status?`, `url?`, `limit?` |
-| `get_request`    | Find requests by URL substring | `url: string`                          |
-| `get_pending`    | Get in-flight requests         | —                                      |
-| `get_errors`     | Get failed requests            | `limit?: number`                       |
-| `get_stats`      | Request statistics             | —                                      |
-| `clear_requests` | Clear captured requests        | —                                      |
+### query
 
-Auto-ignores WebSocket, Metro, and symbolicate URLs.
-
----
-
-### reactQuery
-
-React Query cache inspection and management. Accepts a `QueryClient` instance.
-
-```typescript
-import { QueryClient } from '@tanstack/react-query';
-
-const queryClient = new QueryClient();
-
-client.registerModules([reactQueryModule(queryClient)]);
-```
-
-| Tool          | Description                     | Args                          |
-| ------------- | ------------------------------- | ----------------------------- |
-| `get_queries` | List all cached queries         | `status?`, `key?` (substring) |
-| `get_data`    | Get cached data for a query     | `key: string` (JSON format)   |
-| `get_stats`   | Cache statistics                | —                             |
-| `invalidate`  | Invalidate queries (mark stale) | `key?: string`                |
-| `refetch`     | Refetch queries                 | `key?: string`                |
-| `remove`      | Remove from cache               | `key?: string`                |
-| `reset`       | Reset to initial state          | `key?: string`                |
-
-```typescript
-// Get data for a specific query
-call(tool: "query__get_data", args: '{"key": "[\"users\",\"list\"]"}')
-
-// Invalidate all user queries
-call(tool: "query__invalidate", args: '{"key": "users"}')
-```
-
----
+React Query cache inspection: list cached queries, fetch cached data by key, get stats, and run `invalidate` / `refetch` / `remove` / `reset` against specific keys or the whole cache.
 
 ### storage
 
-Key-value storage inspection. Supports multiple named storage instances with flexible adapters.
+Reads and writes to one or more named key-value stores. Each store is a `{ name, adapter }` pair; the adapter can wrap MMKV, AsyncStorage, or any custom implementation that provides at least a `get`:
 
-```typescript
-// Single storage
-client.registerModules([storageModule({ name: 'app', adapter: myStorageAdapter })]);
-
-// Multiple storages
-client.registerModules([
-  storageModule({ name: 'app', adapter: appStorage }, { name: 'cache', adapter: cacheStorage }),
-]);
-```
-
-**Adapter interface** — only `get` is required:
-
-```typescript
+```ts
 interface StorageAdapter {
   get(key: string): string | undefined | null | Promise<string | undefined | null>;
   set?(key: string, value: string): void | Promise<void>;
   delete?(key: string): void | Promise<void>;
   getAllKeys?(): string[] | Promise<string[]>;
 }
+
+storageModule(
+  { name: 'mmkv', adapter: mmkvAdapter },
+  { name: 'async', adapter: asyncStorageAdapter }
+);
 ```
 
-| Tool            | Description              | Args                                               |
-| --------------- | ------------------------ | -------------------------------------------------- |
-| `get_item`      | Get value by key         | `key: string`, `storage?: string`                  |
-| `set_item`      | Set value                | `key: string`, `value: string`, `storage?: string` |
-| `delete_item`   | Delete key               | `key: string`, `storage?: string`                  |
-| `list_keys`     | List all keys            | `storage?: string`                                 |
-| `get_all`       | Get all key-value pairs  | `storage?: string`                                 |
-| `list_storages` | List registered storages | —                                                  |
+Without an `adapter.set` / `delete` / `getAllKeys`, the corresponding tools just report the operation as unsupported.
 
-Works with MMKV, AsyncStorage, or any custom adapter.
+## Custom modules
 
-## Hooks
+Write your own module by returning an `McpModule`:
 
-Hooks let you expose state and tools from React components.
-
-### useMcpState
-
-Expose reactive state to the AI agent:
-
-```typescript
-useMcpState(
-  key: string,
-  factory: () => unknown,
-  deps: DependencyList
-): void
-```
-
-```typescript
-const UserProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-
-  useMcpState(
-    'user',
-    () => ({
-      email: user?.email,
-      id: user?.id,
-      loggedIn: user !== null,
-    }),
-    [user]
-  );
-
-  // ...
-};
-```
-
-The agent reads state via `state_get` and `state_list` tools — no WebSocket roundtrip needed.
-
-### useMcpTool
-
-Register a dynamic tool from a component:
-
-```typescript
-useMcpTool(
-  name: string,
-  factory: () => ToolHandler,
-  deps: DependencyList
-): void
-```
-
-```typescript
-const UserProvider = ({ children }) => {
-  const logout = useCallback(() => {
-    /* ... */
-  }, []);
-
-  useMcpTool(
-    'logout',
-    () => ({
-      description: 'Log out the current user',
-      handler: () => {
-        logout();
-        return { success: true };
-      },
-    }),
-    [logout]
-  );
-
-  // ...
-};
-```
-
-Dynamic tools are accessible via `call(tool: "_dynamic_logout")` and appear in `list_tools` with a `(dynamic)` label.
-
-### useMcpModule
-
-Register a full module from a component (tied to component lifecycle):
-
-```typescript
-useMcpModule(
-  factory: () => McpModule,
-  deps: DependencyList
-): void
-```
-
-```typescript
-const App = () => {
-  const queryClient = useQueryClient();
-
-  useMcpModule(() => reactQueryModule(queryClient), [queryClient]);
-
-  // ...
-};
-```
-
-## Babel Plugins
-
-### testIdPlugin
-
-Auto-adds `data-mcp-id` attributes to JSX components for reliable component identification.
-
-```javascript
-// babel.config.js
-module.exports = {
-  plugins: [
-    [
-      'react-native-mcp-kit/babel/test-id-plugin',
-      {
-        attr: 'data-mcp-id', // attribute name (default)
-        separator: ':', // separator (default)
-        exclude: ['Fragment'], // components to skip
-        include: ['Button', 'Input'], // if set, only these get IDs
-      },
-    ],
-  ],
-};
-```
-
-Generated ID format: `ComponentName:filePath:line`
-
-```tsx
-// Before
-<LoginButton onPress={handleLogin} />
-
-// After (dev build)
-<LoginButton onPress={handleLogin} data-mcp-id="LoginButton:src/screens/Login:42" />
-```
-
-### stripPlugin
-
-Removes all MCP code from production builds. Zero MCP code in the final bundle.
-
-```javascript
-// babel.config.js
-module.exports = (api) => {
-  const isDev = api.cache(() => process.env.NODE_ENV !== 'production');
-
-  return {
-    plugins: [
-      isDev && ['react-native-mcp-kit/babel/test-id-plugin'],
-      !isDev && ['react-native-mcp-kit/babel/strip-plugin'],
-    ].filter(Boolean),
-  };
-};
-```
-
-**What it removes:**
-
-- All imports from `react-native-mcp-kit`
-- `McpClient.initialize()`, `registerModule()`, `registerModules()` calls
-- `useMcpState()`, `useMcpTool()`, `useMcpModule()` calls
-- `<McpProvider>` JSX (replaced with children)
-- `data-mcp-id` JSX attributes
-
-With the strip plugin, you don't need `if (__DEV__)` guards — just write MCP code normally and it gets removed in production.
-
-## Dev vs Production
-
-Two strategies for production safety:
-
-1. **Strip plugin** (Babel) — removes all MCP imports, calls, and JSX from the production bundle. No MCP code ships to users.
-2. **Without strip plugin** — MCP code stays but WebSocket connection to non-existent server is harmless.
-
-## MCP Server Tools
-
-The server exposes 5 static tools (no dynamic registration needed):
-
-| Tool                | Description                                                   |
-| ------------------- | ------------------------------------------------------------- |
-| `call`              | Universal proxy — calls any tool registered by the RN app     |
-| `list_tools`        | Lists all available tools grouped by module with descriptions |
-| `connection_status` | Check if the RN app is connected                              |
-| `state_get`         | Read state exposed by `useMcpState`                           |
-| `state_list`        | List all available state keys                                 |
-
-**Using `call`:**
-
-```
-call(tool: "navigation__navigate", args: '{"screen": "Settings"}')
-call(tool: "console__get_errors")
-call(tool: "_dynamic_logout")
-```
-
-The `tool` argument uses `module__method` format (double underscore). Dynamic tools from `useMcpTool` use the `_dynamic_` prefix.
-
-The server includes instructions and tool annotations to help AI agents understand how to interact with the app.
-
-## Custom Modules
-
-Create your own module by returning an `McpModule` object:
-
-```typescript
+```ts
 import { type McpModule } from 'react-native-mcp-kit';
 
-const myModule = (): McpModule => {
-  return {
-    description: 'My custom module for AI agents',
-    name: 'myModule',
-    tools: {
-      greet: {
-        description: 'Returns a greeting',
-        handler: async (args) => {
-          const name = args.name as string;
-          return { message: `Hello, ${name}!` };
-        },
-      },
-      getStatus: {
-        description: 'Get current status',
-        handler: () => {
-          return { status: 'ok', timestamp: Date.now() };
-        },
-        timeout: 5000, // custom timeout in ms (default: 10s)
-      },
+const myModule = (): McpModule => ({
+  name: 'myModule',
+  description: 'Custom tools exposed to AI agents',
+  tools: {
+    greet: {
+      description: 'Returns a greeting',
+      handler: async (args) => ({ message: `Hello, ${args.name}!` }),
+      inputSchema: { name: { type: 'string' } },
+      timeout: 5000, // optional per-tool timeout, default 10s
     },
-  };
-};
+  },
+});
 
-// Register
-client.registerModules([myModule()]);
-```
-
-**Module registration methods:**
-
-```typescript
-// At init time
-const client = McpClient.initialize();
-client.registerModules([myModule()]);
-
-// After init
-McpClient.getInstance().registerModule(myModule());
-
-// From a component (tied to lifecycle)
+<McpProvider modules={[myModule()]}>{…}</McpProvider>
+// or
 useMcpModule(() => myModule(), []);
 ```
 
-## Debug Logging
+Agents see the module + its tools in `list_tools` and call them via `call(tool: "myModule__greet")`.
 
-Enable colored console output for all MCP communication:
+## Dev vs production
 
-```typescript
-McpClient.initialize({ debug: true });
+- **Development** — test-id plugin on, strip plugin off. The `McpProvider` boots, tries to connect to `ws://localhost:8347`; if the server isn't running, no harm done — the bridge just stays disconnected and retries.
+- **Production** — strip plugin on (test-id plugin off). The provider, all hook calls, every import from `react-native-mcp-kit`, and every `data-mcp-id` attribute vanish from the bundle. Nothing ships to users.
+
+You don't need `if (__DEV__)` guards around mcp-kit usage — the babel plugin handles it.
+
+## Debug logging
+
+Pass `debug` to the provider to print every incoming request and outgoing response with color-coded module names and arrows. Logs use the pre-intercept `console.log`, so they never pollute the `console` module's buffer.
+
+```tsx
+<McpProvider debug>{…}</McpProvider>
 ```
 
-Output shows:
+## Local development (symlink / portal)
 
-- `[rn-mcp-kit]` tag (bold purple)
-- Colored module names (12 bold ANSI colors, assigned by registration order)
-- Bold method names
-- `→` incoming tool requests (cyan)
-- `←` responses (green)
-- `✕` errors (red)
+If you're developing the library next to an app and symlinking it in, Metro needs to know about the extra path:
 
-Debug logs use the original `console.log` (captured before the console module intercepts), so they don't appear in the console module buffer.
-
-## API Reference
-
-### McpClient
-
-```typescript
-// Initialize (creates singleton)
-static initialize(options?: { debug?: boolean; host?: string; port?: number }): McpClient
-
-// Get existing instance (throws if not initialized)
-static getInstance(): McpClient
-
-// Module registration
-registerModule(module: McpModule): void
-registerModules(modules: McpModule[]): void
-
-// Dynamic tools
-registerTool(name: string, tool: ToolHandler): void
-unregisterTool(name: string): void
-
-// State
-setState(key: string, value: unknown): void
-removeState(key: string): void
-
-// Lifecycle
-dispose(): void
-enableDebug(enabled: boolean): void
-```
-
-### McpModule
-
-```typescript
-interface McpModule {
-  description?: string;
-  name: string;
-  tools: Record<string, ToolHandler>;
-}
-```
-
-### ToolHandler
-
-```typescript
-interface ToolHandler {
-  description: string;
-  handler: (args: Record<string, unknown>) => unknown | Promise<unknown>;
-  inputSchema?: Record<string, unknown>;
-  timeout?: number; // per-tool timeout in ms (default: 10s)
-}
-```
-
-## Symlink Setup (for local development)
-
-If you're developing with the library linked locally via symlink/portal:
-
-```javascript
+```js
 // metro.config.js
-const mcpPath = require('path').resolve(__dirname, '../path-to/react-native-mcp-kit');
+const path = require('path');
+const mcpPath = path.resolve(__dirname, '../path-to/react-native-mcp-kit');
 
 module.exports = {
   watchFolders: [mcpPath],
@@ -815,6 +336,27 @@ module.exports = {
     ],
   },
 };
+```
+
+## API reference
+
+The recommended entry point is `<McpProvider />` — it owns the client singleton and you rarely need to touch `McpClient` directly. For advanced cases the class exposes `McpClient.initialize` / `getInstance` / `registerModule(s)` / `registerTool` / `setState` / `removeState` / `dispose` / `enableDebug` (all idempotent, `initialize` returns the existing instance on repeat calls).
+
+Module and tool types:
+
+```ts
+interface McpModule {
+  name: string;
+  description?: string;
+  tools: Record<string, ToolHandler>;
+}
+
+interface ToolHandler {
+  description: string;
+  handler: (args: Record<string, unknown>) => unknown | Promise<unknown>;
+  inputSchema?: Record<string, unknown>;
+  timeout?: number; // default 10s
+}
 ```
 
 ## License

@@ -4,6 +4,7 @@ export { consoleModule } from './console';
 export { deviceModule } from './device';
 export { errorsModule } from './errors';
 export { i18nextModule } from './i18next';
+export { logBoxModule } from './logBox';
 export { navigationModule } from './navigation';
 export { networkModule } from './network';
 export { reactQueryModule } from './reactQuery';

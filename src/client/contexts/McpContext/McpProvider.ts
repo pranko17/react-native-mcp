@@ -7,6 +7,7 @@ import { deviceModule } from '@/modules/device';
 import { errorsModule } from '@/modules/errors';
 import { fiberTreeModule } from '@/modules/fiberTree';
 import { i18nextModule } from '@/modules/i18next';
+import { logBoxModule } from '@/modules/logBox';
 import { navigationModule } from '@/modules/navigation';
 import { networkModule } from '@/modules/network';
 import { reactQueryModule } from '@/modules/reactQuery';
@@ -53,6 +54,7 @@ export const McpProvider = ({
       consoleModule(),
       deviceModule(),
       errorsModule(),
+      logBoxModule(),
       networkModule(),
       fiberTreeModule({ rootRef }),
     ]);

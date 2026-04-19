@@ -28,6 +28,7 @@ export interface NavigationRef {
   navigate: (...args: any[]) => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   resetRoot: (...args: any[]) => void;
+  isReady?: () => boolean;
 }
 
 export interface NavigationHistoryEntry {

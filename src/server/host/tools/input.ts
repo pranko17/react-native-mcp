@@ -7,6 +7,7 @@ import {
   parseStringArg,
   PLATFORM_ARG_SCHEMA,
 } from '@/server/host/helpers';
+import { pressKeyIos, swipeIos, tapIos, typeTextIos } from '@/server/host/iosInput';
 import { ProcessNotFoundError, type ProcessRunner } from '@/server/host/processRunner';
 import { type HostToolHandler } from '@/server/host/types';
 
@@ -104,6 +105,23 @@ const typeTextAndroid = async (
   submit: boolean,
   runner: ProcessRunner
 ): Promise<{ ok: true } | AppTargetError> => {
+  // Select all + delete existing text first (consistent with iOS behavior).
+  // `input keycombination` sends keys simultaneously (Ctrl+A = select all).
+  try {
+    const selAll = await runner(
+      'adb',
+      ['-s', serial, 'shell', 'input', 'keycombination', '113', '29'],
+      {
+        timeoutMs: INPUT_TIMEOUT_MS,
+      }
+    );
+    if (selAll.exitCode === 0) {
+      await runAdbInput(serial, ['keyevent', 'KEYCODE_DEL'], runner, 'clear');
+    }
+  } catch {
+    // keycombination not supported — skip clear, just append
+  }
+
   const escaped = escapeAdbInputText(text);
   const typed = await runAdbInput(serial, ['text', escaped], runner, 'text');
   if ('error' in typed) {
@@ -129,29 +147,23 @@ const pressKeyAndroid = (
   return runAdbInput(serial, ['keyevent', keycode], runner, 'keyevent');
 };
 
-const iosInputNotSupported = (toolName: string): AppTargetError => {
-  return {
-    error: `${toolName} on iOS requires WebDriverAgent integration (planned follow-up commit). Use an Android target for now, or use fiber_tree__invoke on the connected client for in-app interactions.`,
-  };
-};
-
 export const tapTool = (runner: ProcessRunner): HostToolHandler => {
   return {
     description:
-      'Prefer fiber_tree__invoke for React-rendered components, or fiber_tree__find_all with select: ["mcpId", "name", "bounds"] + bounds.centerX/centerY for OS-gesture testing. Use this raw-coordinate tap only for non-React surfaces (system dialogs, keyboard, WebView). Tap at absolute pixel coordinates (x, y) via adb shell input tap. Top-left origin. iOS support is a planned follow-up via WebDriverAgent.',
+      'Tap at absolute pixel coordinates (x, y), top-left origin. Coordinates match fiber_tree bounds.centerX/centerY — feed them directly. Goes through the OS gesture pipeline, so use this (over fiber_tree__invoke) whenever you want to exercise the real touch path. Android: adb shell input tap. iOS: bundled ios-hid binary (HID injection into iOS Simulator via SimulatorKit).',
     handler: async (args, ctx) => {
       const resolved = await resolveDevice(ctx, parseResolveOptions(args), runner);
       if (!resolved.ok) {
         return { error: resolved.error };
       }
-      if (resolved.device.platform === 'ios') {
-        return iosInputNotSupported('host__tap');
-      }
       const x = parseCoord(args.x, 'x');
       if (!x.ok) return { error: x.error };
       const y = parseCoord(args.y, 'y');
       if (!y.ok) return { error: y.error };
-      const result = await tapAndroid(resolved.device.nativeId, x.value, y.value, runner);
+      const result =
+        resolved.device.platform === 'ios'
+          ? await tapIos(resolved.device.nativeId, x.value, y.value, runner)
+          : await tapAndroid(resolved.device.nativeId, x.value, y.value, runner);
       if ('error' in result) {
         return { error: result.error };
       }
@@ -176,14 +188,11 @@ export const tapTool = (runner: ProcessRunner): HostToolHandler => {
 export const swipeTool = (runner: ProcessRunner): HostToolHandler => {
   return {
     description:
-      'Swipe (or scroll) from (x1, y1) to (x2, y2) on the target device via adb shell input swipe. Coordinates are absolute pixels, top-left origin. durationMs defaults to 300 and is clamped to 50..5000. iOS support is a planned follow-up via WebDriverAgent.',
+      'Swipe (or scroll) from (x1, y1) to (x2, y2) on the target device. Coordinates are absolute pixels, top-left origin. durationMs defaults to 300 and is clamped to 50..5000. Android: adb shell input swipe. iOS: bundled ios-hid binary (HID injection into iOS Simulator via SimulatorKit).',
     handler: async (args, ctx) => {
       const resolved = await resolveDevice(ctx, parseResolveOptions(args), runner);
       if (!resolved.ok) {
         return { error: resolved.error };
-      }
-      if (resolved.device.platform === 'ios') {
-        return iosInputNotSupported('host__swipe');
       }
       const x1 = parseCoord(args.x1, 'x1');
       if (!x1.ok) return { error: x1.error };
@@ -194,15 +203,26 @@ export const swipeTool = (runner: ProcessRunner): HostToolHandler => {
       const y2 = parseCoord(args.y2, 'y2');
       if (!y2.ok) return { error: y2.error };
       const durationMs = clampSwipeDuration(args.durationMs);
-      const result = await swipeAndroid(
-        resolved.device.nativeId,
-        x1.value,
-        y1.value,
-        x2.value,
-        y2.value,
-        durationMs,
-        runner
-      );
+      const result =
+        resolved.device.platform === 'ios'
+          ? await swipeIos(
+              resolved.device.nativeId,
+              x1.value,
+              y1.value,
+              x2.value,
+              y2.value,
+              durationMs,
+              runner
+            )
+          : await swipeAndroid(
+              resolved.device.nativeId,
+              x1.value,
+              y1.value,
+              x2.value,
+              y2.value,
+              durationMs,
+              runner
+            );
       if ('error' in result) {
         return { error: result.error };
       }
@@ -245,21 +265,21 @@ export const swipeTool = (runner: ProcessRunner): HostToolHandler => {
 export const typeTextTool = (runner: ProcessRunner): HostToolHandler => {
   return {
     description:
-      'Type text into the currently focused input field on the target device via adb shell input text. Escapes whitespace and shell metacharacters automatically. Pass submit=true to press ENTER after typing (e.g. to submit a search). iOS support is a planned follow-up via WebDriverAgent.',
+      'Type text into the currently focused input field on the target device. Replaces existing text (select-all then paste). Pass submit=true to press ENTER after typing. Android: adb shell input text (shell metacharacters and whitespace escaped automatically). iOS: bundled ios-hid binary pastes via simctl pbcopy + Cmd+A / Cmd+V to avoid keyboard-layout issues.',
     handler: async (args, ctx) => {
       const resolved = await resolveDevice(ctx, parseResolveOptions(args), runner);
       if (!resolved.ok) {
         return { error: resolved.error };
-      }
-      if (resolved.device.platform === 'ios') {
-        return iosInputNotSupported('host__type_text');
       }
       const text = typeof args.text === 'string' ? args.text : undefined;
       if (text === undefined) {
         return { error: "'text' is required and must be a string" };
       }
       const submit = args.submit === true;
-      const result = await typeTextAndroid(resolved.device.nativeId, text, submit, runner);
+      const result =
+        resolved.device.platform === 'ios'
+          ? await typeTextIos(resolved.device.nativeId, text, submit, runner)
+          : await typeTextAndroid(resolved.device.nativeId, text, submit, runner);
       if ('error' in result) {
         return { error: result.error };
       }
@@ -289,20 +309,20 @@ export const typeTextTool = (runner: ProcessRunner): HostToolHandler => {
 
 export const pressKeyTool = (runner: ProcessRunner): HostToolHandler => {
   return {
-    description: `Press a hardware/semantic key on the target device via adb shell input keyevent. Accepted key names: ${KEY_NAMES.join(', ')}. iOS support is a planned follow-up via WebDriverAgent. Target device resolution: explicit udid/serial > outer clientId > platform + auto-pick > bare scan.`,
+    description: `Press a hardware/semantic key on the target device. Android: adb shell input keyevent. iOS: bundled ios-hid binary (HID keyboard/button events via SimulatorKit). Accepted key names: ${KEY_NAMES.join(', ')}. On iOS back/menu/power/volume_up/volume_down are not available.`,
     handler: async (args, ctx) => {
       const resolved = await resolveDevice(ctx, parseResolveOptions(args), runner);
       if (!resolved.ok) {
         return { error: resolved.error };
       }
-      if (resolved.device.platform === 'ios') {
-        return iosInputNotSupported('host__press_key');
-      }
       const key = parseStringArg(args.key);
       if (!key) {
         return { error: `'key' is required. Supported: ${KEY_NAMES.join(', ')}.` };
       }
-      const result = await pressKeyAndroid(resolved.device.nativeId, key, runner);
+      const result =
+        resolved.device.platform === 'ios'
+          ? await pressKeyIos(resolved.device.nativeId, key, runner)
+          : await pressKeyAndroid(resolved.device.nativeId, key, runner);
       if ('error' in result) {
         return { error: result.error };
       }

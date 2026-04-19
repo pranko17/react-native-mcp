@@ -28,51 +28,46 @@ const getCurrentRouteFromState = (
 };
 
 export const navigationModule = (navigation: NavigationRef): McpModule => {
+  console.log('Navigation module initialized');
   const history: NavigationHistoryEntry[] = [];
 
-  // Record initial state
-  try {
-    const rootState = navigation.getRootState() as NavigationState | undefined;
-    if (rootState) {
-      const route = getCurrentRouteFromState(rootState);
-      if (route) {
-        history.push({
-          route,
-          state: rootState,
-          timestamp: new Date().toISOString(),
-        });
-      }
-    }
-  } catch {
-    // Navigation not ready yet
-  }
+  const recordEntry = (rootState: NavigationState) => {
+    const route = getCurrentRouteFromState(rootState);
+    if (!route) return;
 
-  // Subscribe to state changes
-  try {
-    navigation.addListener('state', () => {
-      const rootState = navigation.getRootState() as NavigationState | undefined;
-      if (!rootState) return;
+    const last = history[history.length - 1];
+    if (last && last.route.key === route.key) return;
 
-      const route = getCurrentRouteFromState(rootState);
-      if (!route) return;
-
-      // Skip duplicate entries
-      const last = history[history.length - 1];
-      if (last && last.route.key === route.key) return;
-
-      history.push({
-        route,
-        state: rootState,
-        timestamp: new Date().toISOString(),
-      });
-
-      if (history.length > MAX_HISTORY) {
-        history.shift();
-      }
+    history.push({
+      route,
+      state: rootState,
+      timestamp: new Date().toISOString(),
     });
-  } catch {
-    // Navigation not ready yet
-  }
+
+    if (history.length > MAX_HISTORY) {
+      history.shift();
+    }
+  };
+
+  const setup = () => {
+    const rootState = navigation.getRootState() as NavigationState | undefined;
+    if (rootState) recordEntry(rootState);
+
+    navigation.addListener('state', () => {
+      const state = navigation.getRootState() as NavigationState | undefined;
+      if (state) recordEntry(state);
+    });
+  };
+
+  const waitForReady = () => {
+    if (navigation.isReady?.() ?? true) {
+      setup();
+      return;
+    }
+    setTimeout(waitForReady, 100);
+  };
+
+  waitForReady();
 
   return {
     description:

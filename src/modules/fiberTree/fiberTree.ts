@@ -136,7 +136,8 @@ export const fiberTreeModule = (options?: FiberTreeModuleOptions): McpModule => 
 
 ## Tips
 - mcpId is stable across renders (format: ComponentName:file:line)
-- Use find_all first to discover available components, then invoke on them
+- Use find_all first to discover available components, then invoke or host__tap them
+- host__tap with bounds.centerX/centerY tests the real OS gesture pipeline; invoke bypasses it and calls the prop directly (faster, immune to overlay/gesture-arbitration issues, but doesn't exercise touch handlers)
 - Use screenshot after interactions to verify results`,
     name: 'fiber_tree',
     tools: {
@@ -381,7 +382,7 @@ export const fiberTreeModule = (options?: FiberTreeModuleOptions): McpModule => 
       },
       invoke: {
         description:
-          'Call any callback prop on a component found by testID, name, or text. Use this to simulate press, scroll, text input, or any other interaction. Preferred over host__tap for any React-rendered component — calls the prop directly without going through the OS gesture pipeline.',
+          'Call any callback prop on a component found by testID, name, or text. Use this to simulate press, scroll, text input, or any other interaction. Bypasses the OS gesture pipeline — faster and immune to overlay/gesture-arbitration issues, but does not exercise touch handlers. Prefer host__tap (with fiber_tree bounds) when you want to test the real user touch path.',
         handler: (args) => {
           const rootError = requireRoot();
           if (rootError) return rootError;

@@ -1,4 +1,5 @@
 import { type McpModule } from '@/client/models/types';
+import { findAllFibers, getComponentName, getFiberRoot } from '@/modules/fiberTree';
 
 import { type NavigationHistoryEntry, type NavigationRef, type NavigationState } from './types';
 
@@ -25,6 +26,71 @@ const getCurrentRouteFromState = (
     return getCurrentRouteFromState(route.state);
   }
   return { key: route.key, name: route.name, params: route.params };
+};
+
+// Decorated view of the currently-focused screen — component name, and the
+// mcpId / filePath / line of the first instrumented element rendered inside it.
+// React Navigation injects `route` and `navigation` as props on the screen's
+// root component (both for the `component={...}` API and the hook API), so we
+// find the screen fiber by matching on route.key, then walk its descendants
+// for the first data-mcp-id to surface a rendering-site reference.
+interface ScreenInfo {
+  componentName: string;
+  filePath?: string;
+  line?: number;
+  mcpId?: string;
+}
+
+interface MinimalFiber {
+  memoizedProps?: Record<string, unknown> | null;
+  child?: MinimalFiber | null;
+  sibling?: MinimalFiber | null;
+}
+
+const firstMcpIdDescendant = (fiber: MinimalFiber | null | undefined): string | undefined => {
+  if (!fiber) return undefined;
+  const id = fiber.memoizedProps?.['data-mcp-id'];
+  if (typeof id === 'string' && id.length > 0) return id;
+  let child = fiber.child;
+  while (child) {
+    const found = firstMcpIdDescendant(child);
+    if (found) return found;
+    child = child.sibling;
+  }
+  return undefined;
+};
+
+const parseMcpId = (mcpId: string | undefined): { filePath?: string; line?: number } => {
+  if (!mcpId) return {};
+  const parts = mcpId.split(':');
+  if (parts.length < 3) return {};
+  const last = parts[parts.length - 1]!;
+  if (!/^\d+$/.test(last)) return {};
+  const line = parseInt(last, 10);
+  const filePath = parts.slice(1, -1).join(':');
+  return { filePath: filePath || undefined, line };
+};
+
+const getScreenInfoForRouteKey = (routeKey: string | undefined): ScreenInfo | undefined => {
+  if (!routeKey) return undefined;
+  const root = getFiberRoot();
+  if (!root) return undefined;
+  // Route keys are unique per mounted screen; matches resolve to the
+  // component registered via <Stack.Screen component={...}> (or the screen
+  // body when using the object API).
+  const matches = findAllFibers(root, (f) => {
+    const props = f.memoizedProps as { route?: { key?: string } } | null | undefined;
+    return props?.route?.key === routeKey;
+  });
+  const fiber = matches[0];
+  if (!fiber) return undefined;
+  const mcpId = firstMcpIdDescendant(fiber);
+  const info: ScreenInfo = { componentName: getComponentName(fiber) };
+  if (mcpId) info.mcpId = mcpId;
+  const parsed = parseMcpId(mcpId);
+  if (parsed.filePath) info.filePath = parsed.filePath;
+  if (parsed.line !== undefined) info.line = parsed.line;
+  return info;
 };
 
 export const navigationModule = (navigation: NavigationRef): McpModule => {
@@ -69,24 +135,39 @@ export const navigationModule = (navigation: NavigationRef): McpModule => {
 
   waitForReady();
 
+  // Decorate a route dict from React Navigation with a `screen` field describing
+  // the React component rendering it — gives agents a direct path to inspect
+  // or drive that screen via fiber_tree without a separate lookup step.
+  const withScreenInfo = <T extends { key?: unknown } | null | undefined>(
+    route: T
+  ): T extends null | undefined ? T : T & { screen?: ScreenInfo } => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (!route) return route as any;
+    const key = typeof route.key === 'string' ? route.key : undefined;
+    const screen = getScreenInfoForRouteKey(key);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (screen ? { ...route, screen } : route) as any;
+  };
+
   return {
     description:
       'React Navigation control: get current route/state/history, navigate, push, pop, replace, reset, go_back.',
     name: 'navigation',
     tools: {
       get_current_route: {
-        description: 'Get the currently focused route name and params',
+        description:
+          'Get the currently focused route name, params and a `screen` field with the rendering component name + first data-mcp-id inside it (handy for fiber_tree follow-ups).',
         handler: () => {
-          return navigation.getCurrentRoute();
+          return withScreenInfo(navigation.getCurrentRoute() as { key?: unknown } | null);
         },
       },
       get_current_route_state: {
         description:
-          'Get the full state of the currently focused route including params, key, and nested navigator state',
+          'Get the full state of the currently focused route including params, key, nested navigator state, and a `screen` field with rendering component info.',
         handler: () => {
           const rootState = navigation.getRootState() as NavigationState | undefined;
           if (!rootState) return { error: 'No navigation state available' };
-          return findFocusedRoute(rootState);
+          return withScreenInfo(findFocusedRoute(rootState) as { key?: unknown } | null);
         },
       },
       get_history: {
@@ -151,7 +232,10 @@ export const navigationModule = (navigation: NavigationRef): McpModule => {
         description: 'Navigate to a screen. Reuses existing screen if it exists in the stack.',
         handler: (args) => {
           navigation.navigate(args.screen as string, args.params as Record<string, unknown>);
-          return { currentRoute: navigation.getCurrentRoute(), success: true };
+          return {
+            currentRoute: withScreenInfo(navigation.getCurrentRoute() as { key?: unknown } | null),
+            success: true,
+          };
         },
         inputSchema: {
           params: { description: 'Optional route params', type: 'object' },
@@ -163,7 +247,10 @@ export const navigationModule = (navigation: NavigationRef): McpModule => {
         handler: (args) => {
           const count = (args.count as number) || 1;
           navigation.dispatch({ payload: { count }, type: 'POP' });
-          return { currentRoute: navigation.getCurrentRoute(), success: true };
+          return {
+            currentRoute: withScreenInfo(navigation.getCurrentRoute() as { key?: unknown } | null),
+            success: true,
+          };
         },
         inputSchema: {
           count: { description: 'Number of screens to pop (default: 1)', type: 'number' },
@@ -176,7 +263,10 @@ export const navigationModule = (navigation: NavigationRef): McpModule => {
             payload: { name: args.screen as string, params: args.params },
             type: 'POP_TO',
           });
-          return { currentRoute: navigation.getCurrentRoute(), success: true };
+          return {
+            currentRoute: withScreenInfo(navigation.getCurrentRoute() as { key?: unknown } | null),
+            success: true,
+          };
         },
         inputSchema: {
           params: { description: 'Optional route params', type: 'object' },
@@ -187,7 +277,10 @@ export const navigationModule = (navigation: NavigationRef): McpModule => {
         description: 'Pop to the first screen in the stack',
         handler: () => {
           navigation.dispatch({ type: 'POP_TO_TOP' });
-          return { currentRoute: navigation.getCurrentRoute(), success: true };
+          return {
+            currentRoute: withScreenInfo(navigation.getCurrentRoute() as { key?: unknown } | null),
+            success: true,
+          };
         },
       },
       push: {
@@ -198,7 +291,10 @@ export const navigationModule = (navigation: NavigationRef): McpModule => {
             payload: { name: args.screen as string, params: args.params },
             type: 'PUSH',
           });
-          return { currentRoute: navigation.getCurrentRoute(), success: true };
+          return {
+            currentRoute: withScreenInfo(navigation.getCurrentRoute() as { key?: unknown } | null),
+            success: true,
+          };
         },
         inputSchema: {
           params: { description: 'Optional route params', type: 'object' },
@@ -212,7 +308,10 @@ export const navigationModule = (navigation: NavigationRef): McpModule => {
             payload: { name: args.screen as string, params: args.params },
             type: 'REPLACE',
           });
-          return { currentRoute: navigation.getCurrentRoute(), success: true };
+          return {
+            currentRoute: withScreenInfo(navigation.getCurrentRoute() as { key?: unknown } | null),
+            success: true,
+          };
         },
         inputSchema: {
           params: { description: 'Optional route params', type: 'object' },
@@ -233,7 +332,10 @@ export const navigationModule = (navigation: NavigationRef): McpModule => {
             },
             type: 'RESET',
           });
-          return { currentRoute: navigation.getCurrentRoute(), success: true };
+          return {
+            currentRoute: withScreenInfo(navigation.getCurrentRoute() as { key?: unknown } | null),
+            success: true,
+          };
         },
         inputSchema: {
           index: { description: 'Index of the active route (default: last)', type: 'number' },

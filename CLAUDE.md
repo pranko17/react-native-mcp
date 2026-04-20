@@ -111,8 +111,17 @@ src/
         capture.ts          — screenshot (WebP, default width 280, diff cache, region crop)
         lifecycle.ts        — launch / terminate / restart
         devices.ts          — list_devices
-        symbolicate.ts      — Metro /symbolicate wrapper with collapse-filter + maxFrames trim
         tapFiber.ts         — fiber_tree__query + host__tap one-shot (uses HostContext.dispatch)
+    metro/                  — Metro dev-server control plane (HTTP + WS)
+      metroModule.ts
+      resolveMetroUrl.ts    — per-client devServer.url (from handshake) → HTTP base
+      eventCapture.ts       — lazy WS to /events, 200-entry ring buffer
+      tools/
+        symbolicate.ts      — /symbolicate wrapper with collapse-filter + maxFrames trim
+        reload.ts           — POST /reload
+        status.ts           — GET /status health check
+        openInEditor.ts     — POST /open-stack-frame → $REACT_EDITOR
+        events.ts           — reads the ring buffer with slice + type + since filters
     cli.ts                  — #!/usr/bin/env node — parses --port / --no-host, boots server
     index.ts                — createServer()
   swift/
@@ -230,7 +239,7 @@ Module `description` surfaces in `list_tools` output. Use markdown with examples
 - **console** — `consoleModule({ maxEntries?, levels?, stackTrace? })`: console.log/warn/error/info/debug ring buffer. Serialises functions, class instances, cyclic refs, Errors, Dates, RegExp, Symbols. Tools: `get_logs`, `get_errors`, `get_warnings`, `get_info`, `get_debug`, `clear_logs`.
 - **device** — `deviceModule()`: platform + dimensions (DP + physical px) + pixel ratio + appearance + app state + accessibility + keyboard + URL handling + reload + vibrate. 15 read-only / imperative tools.
 - **errors** — `errorsModule({ maxEntries? })`: unhandled JS errors (ErrorUtils.setGlobalHandler) + unhandled promise rejections (console.error sniffing). Deduplicates within 100ms. Every entry has a monotonic `id` and parsed `stackFrames` (V8 + Hermes formats) ready for `metro__symbolicate`. Tools: `get_errors` (filters: `source`, `fatal`, `since`, `until`, `slice`, `includeStack`), `get_fatal`, `get_stats`, `clear_errors`.
-- **fiberTree** — `fiberTreeModule({ rootRef?, navigationRef? })`: component tree inspection + interaction. rootRef auto-supplied by `McpProvider`; navigationRef enables `scope: "screen"`. The flagship `query` tool runs chained steps (each step: `scope` + criteria), dedup wrapper cascades, supports `not`/`any` criteria, `onlyVisible` viewport filter, `cache` (root-pointer keyed). Output projection: `select: ["mcpId","name","testID","bounds","props"]`, `propsInclude: [...]` for narrow prop fetch. Scopes: descendants / children / parent / ancestors / siblings / self / screen / nearest_host. `bounds` in physical pixels, pairs with `host__tap`. `invoke` calls props directly (bypasses OS gesture pipeline). Tools: `query`, `get_tree`, `get_component`, `get_children`, `get_props`, `invoke`, `call_ref`, `get_ref_methods`.
+- **fiberTree** — `fiberTreeModule({ rootRef?, navigationRef? })`: component tree inspection + interaction. rootRef auto-supplied by `McpProvider`; navigationRef enables `scope: "screen"`. The flagship `query` tool runs chained steps (each step: `scope` + criteria), dedup wrapper cascades, supports `not`/`any` criteria, `onlyVisible` viewport filter, `cache` (root-pointer keyed). Output projection: `select: ["mcpId","name","testID","bounds","props"]`, `propsInclude: [...]` for narrow prop fetch. Scopes: descendants / children / parent / ancestors / siblings / self / screen / nearest_host. `waitFor: { until: 'appear' | 'disappear', timeout?, interval?, stable? }` wraps the same query in a polling loop (cache always bypassed inside) for UI-level waits — response gains `{ waited, attempts, elapsedMs, timedOut, stableFor? }`. `bounds` in physical pixels, pairs with `host__tap`. `invoke` calls props directly (bypasses OS gesture pipeline). Tools: `query`, `get_tree`, `get_component`, `get_children`, `get_props`, `invoke`, `call_ref`, `get_ref_methods`.
 - **i18next** — `i18nextModule(i18n)`: wraps an i18next instance. Tools: `get_info`, `get_resource`, `get_keys`, `translate` (with interpolation), `search`, `change_language`.
 - **log_box** — `logBoxModule()`: inspect + control the RN LogBox overlay. Tools: `status`, `get_logs` (filters: `level`, `slice`, `includeStack`), `clear` / `clear_warnings` / `clear_errors` / `clear_syntax_errors`, `dismiss` (by index), `ignore` (substrings + `/regex/flags`), `ignore_all` (global mute), `install` / `uninstall`. Dev-only surface; production = no-op.
 - **navigation** — `navigationModule(ref)`: React Navigation control + 100-entry transition history. Current-route responses include a `screen` field with `{ componentName, mcpId?, filePath?, line? }` — skipping RN-internal wrappers (SceneView/StaticContainer/Screen/ForwardRef/Memo). Tools: `get_state`, `get_current_route`, `get_current_route_state`, `get_history`, `navigate`, `push`, `pop`, `pop_to`, `pop_to_top`, `replace`, `reset`, `go_back`.

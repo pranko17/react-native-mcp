@@ -16,13 +16,14 @@ A few concrete scenarios this unlocks:
 
 - **End-to-end automation without a separate test harness.** Describe a multi-step flow in natural language — "sign in, open settings, flip the notifications toggle, verify the confirmation toast" — and an agent walks it: locates components by name/testID, fires real taps through the OS gesture pipeline, asserts on the resulting state, and reports back.
 - **Interactive inspection of a live app from your editor.** Ask "what screen am I on?", "what React Query keys are stale?", "what did the last POST return?", "which translation keys are missing in the current locale?" — no rebuild, no DevTools panel, no "add more logs and reload" loop.
-- **Debug gesture-arbitration bugs that unit tests can't catch.** `host__tap` goes through the real iOS/Android touch pipeline, so issues like "the close button inside a horizontally-scrolling list swallows taps" surface naturally. `fiber_tree__invoke` bypasses the pipeline for the rare cases you want to call `onPress` directly.
-- **Write your own tools from inside components.** `useMcpTool`/`useMcpState`/`useMcpModule` let a component expose a named state key or an ad-hoc tool. Agents can then read feature-flag state, force a particular loading scenario, or trigger an internal-only action without you shipping a debug menu.
+- **Debug gesture-arbitration bugs that unit tests can't catch.** Taps go through the real iOS/Android touch pipeline, so issues like "the close button inside a horizontally-scrolling list swallows taps" surface naturally — and when you need to sidestep the pipeline (call a prop directly on a virtualised item, fire a callback on an offscreen component) the bridge offers that too.
+- **Expose your own inspection points from inside components.** A component can register a named state key or an ad-hoc tool from its own lifecycle. Agents then read feature-flag state, force a particular loading scenario, or trigger an internal-only action without you shipping a debug menu.
 
 Everything the library adds to your bundle is stripped in production builds via the companion babel plugin — so you can wire it up once and leave it in, without shipping it to users.
 
 ## Example scenarios
 
+- **Deep runtime-state analysis on demand.** Ask "why is this screen blank?" or "why did the last submission fail?" — the agent cross-references the live React component tree (which components are mounted, their props and layout bounds, wrapper cascades, visible vs virtualised), the current navigation state, active data-fetching mutations, in-flight and recent network requests (with bodies + durations), captured errors with source-mapped stack traces, and any app-specific state the app has opted into exposing — all from the running runtime, no extra logging or rebuild. The same analysis can be scoped to specific moments ("state right after I tap submit") through built-in polling primitives, rather than a stale snapshot.
 - **Reproduce a bug from a ticket, fix it, verify the fix.** The agent reads the reproduction steps, drives the app into the failing state through real taps and swipes, confirms the bug, edits the relevant source, then replays the same sequence to verify the fix — all in one editor session, no rebuilds between steps.
 - **End-to-end flow narrated in plain language.** "Sign in, add an item to the cart, go through checkout, verify the total matches the expected value, screenshot the final screen, and give me a network traffic summary." The agent drives real taps, checks state at each step, snapshots the key screens, and hands back captured request counts / durations / errors as evidence.
 - **Cross-platform parity check.** One agent holds two connected clients, runs the same tap sequence on iOS and Android in parallel, captures screenshots, and points out the differences — catches platform-specific regressions after an RN upgrade, shared-component refactor, or native change.
@@ -152,7 +153,7 @@ Wrap your whole app in it — every optional prop opts a module in when supplied
 
 ## MCP server tools
 
-The Node server exposes a small set of entry-point tools agents use directly — you don't register or configure them. `call` / `list_tools` / `describe_tool` / `connection_status` / `state_get` / `state_list` cover discovery and dispatch, plus two test-automation helpers: `wait_until` (poll a tool until a predicate holds, replacing screenshot-in-a-loop + sleep) and `assert` (single-shot checkpoint with a standardized diff on failure).
+The Node server exposes a small set of entry-point tools agents use directly — you don't register or configure them. `call` / `list_tools` / `describe_tool` / `connection_status` / `state_get` / `state_list` cover discovery and dispatch, plus two test-automation helpers: `wait_until` (poll any tool until a predicate holds, replacing screenshot-in-a-loop + sleep) and `assert` (single-shot checkpoint with a standardized diff on failure). For UI-level waits (wait for a screen, a spinner to disappear, etc.), `fiber_tree__query` has a built-in `waitFor` option — see the [fiber_tree section](#fiber_tree).
 
 ## Multi-client
 
@@ -169,18 +170,27 @@ What you get:
 - **Screenshots** — WebP, auto-diffing (`unchanged: true` on identical frames). Pass `region` in physical pixels to crop to a specific element and keep vision-token cost low.
 - **App lifecycle** — launch, terminate, restart.
 - **Device enumeration** — list sims / emulators / devices, annotated with active MCP clients.
-- **Symbolication** — `symbolicate` resolves raw JS stack traces to source paths via Metro.
 
 iOS input goes through a bundled `ios-hid` Swift binary that injects HID events directly into iOS Simulator via private frameworks — no external daemons to install or keep running.
+
+## Metro tools (dev-server control plane)
+
+Separate module talking HTTP / WebSocket to the Metro instance the app was bundled from. The URL is auto-detected from each client's handshake (via RN's `getDevServer()`), so non-default ports and LAN-connected physical devices work without extra config.
+
+- **`metro__symbolicate`** — maps a raw Hermes / V8 stack trace back to source paths via Metro's `/symbolicate`. Pairs naturally with `errors__get_errors` and `log_box__get_logs` (each entry has parsed `stackFrames` ready to feed in).
+- **`metro__reload`** — triggers a full JS reload on every attached app (`POST /reload`).
+- **`metro__status`** — cheap ping before a chain of Metro calls.
+- **`metro__open_in_editor({ file, lineNumber, column? })`** — jumps `$REACT_EDITOR` to the exact line. Natural finisher after a symbolication flow.
+- **`metro__get_events`** — reads a server-side ring buffer (200 events) fed by a lazy WebSocket to Metro's `/events` stream. Surfaces `bundle_build_failed`, `bundling_error`, `hmr_client_error`, `hmr_update`, `client_log`, etc. Key use: detecting silent HMR failures when the red box doesn't appear.
 
 ## Hooks
 
 For when the thing you want to expose lives deeper than `McpProvider`:
 
 ```ts
-useMcpState(key, factory, deps)    // expose reactive state to the agent
-useMcpTool(name, factory, deps)    // register an ad-hoc tool tied to the component lifecycle
-useMcpModule(factory, deps)        // register a whole module from inside a component
+useMcpState(key, factory, deps); // expose reactive state to the agent
+useMcpTool(name, factory, deps); // register an ad-hoc tool tied to the component lifecycle
+useMcpModule(factory, deps); // register a whole module from inside a component
 ```
 
 Each follows `useMemo` / `useEffect` semantics — the factory re-runs on dep changes, registration cleans up on unmount.
@@ -191,10 +201,17 @@ const UserProvider = ({ children }) => {
 
   useMcpState('user', () => ({ id: user?.id, loggedIn: user !== null }), [user]);
 
-  useMcpTool('logout', () => ({
-    description: 'Log out the current user',
-    handler: async () => { await logout(); return { success: true }; },
-  }), [logout]);
+  useMcpTool(
+    'logout',
+    () => ({
+      description: 'Log out the current user',
+      handler: async () => {
+        await logout();
+        return { success: true };
+      },
+    }),
+    [logout]
+  );
 
   return <UserContext.Provider value={user}>{children}</UserContext.Provider>;
 };
@@ -246,6 +263,8 @@ Captures unhandled JS errors (via `ErrorUtils.setGlobalHandler`) and unhandled p
 
 The heart of UI inspection. Search the component tree via a chained `query`: each step narrows the result with criteria (name / testID / mcpId / text / props matcher / not / any) and a scope (descendants / ancestors / siblings / screen / nearest_host / …). Wrapper cascades (`PressableView → Pressable → View → RCTView`) collapse to the topmost by default. `bounds` come back in physical pixels and pair directly with `host__tap` — or use `host__tap_fiber` for the locate-and-tap shortcut.
 
+Pass `waitFor: { until: 'appear' | 'disappear', timeout?, interval?, stable? }` to poll the same query until the target state is reached — e.g. `waitFor: { until: 'appear', stable: 300 }` waits for a screen to mount and hold stable for 300ms. Response carries `{ waited, attempts, elapsedMs, timedOut, stableFor? }` alongside the usual matches.
+
 ### i18n
 
 Inspect and manipulate an `i18next` instance: list keys, dump a whole translation resource, run a substring search, translate with interpolation, switch language at runtime.
@@ -268,7 +287,7 @@ networkModule({
   bodyMaxBytes: 10_000,
   ignoreUrls: ['https://analytics.example.com', /\.png$/],
   redactHeaders: ['authorization'], // or false to disable
-  redactBodyKeys: ['password'],     // or false to disable
+  redactBodyKeys: ['password'], // or false to disable
 });
 ```
 

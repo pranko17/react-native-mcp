@@ -56,7 +56,6 @@ Talks HTTP to the Metro dev server. The URL is auto-detected per-client at hands
 
 - **Symbolication** (`metro/tools/symbolicate.ts`): `metro__symbolicate({ stack? | frames?, metroUrl?, clientId?, maxFrames?, includeFrameworkFrames?, fullPaths? })` — POSTs to `/symbolicate`. Drops `collapse: true` framework frames by default, caps to 10 frames, shortens absolute paths relative to cwd. Graceful no-op `{ skipped: true, error, frames }` when Metro is unreachable.
 - **Reload** (`metro/tools/reload.ts`): `metro__reload({ metroUrl?, clientId? })` — POSTs to `/reload`. Triggers a full JS reload on every attached app.
-- **Open URL on host** (`metro/tools/openUrl.ts`): `metro__open_url({ url, metroUrl?, clientId? })` — POSTs to `/open-url`. Opens the URL in the dev machine's default browser (not in the mobile app).
 
 **iOS input** goes through `dist/bin/ios-hid` — a Swift CLI (`src/swift/ios-hid.swift`) that injects HID events directly into iOS Simulator via `SimulatorKit` + `CoreSimulator` private frameworks (no WDA, no idb, no Appium). Built during `yarn build` by `scripts/build-ios-hid.sh` as a universal arm64+x86_64 binary. `src/server/host/iosInput.ts` is the TS wrapper that shells out to it.
 

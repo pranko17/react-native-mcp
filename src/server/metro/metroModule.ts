@@ -1,6 +1,5 @@
 import { type HostModule } from '@/server/host/types';
 
-import { openUrlTool } from './tools/openUrl';
 import { reloadTool } from './tools/reload';
 import { symbolicateTool } from './tools/symbolicate';
 
@@ -11,7 +10,6 @@ export const metroModule = (): HostModule => {
 All tools no-op gracefully with { skipped: true, error } when Metro is unreachable.`,
     name: 'metro',
     tools: {
-      open_url: openUrlTool(),
       reload: reloadTool(),
       symbolicate: symbolicateTool(),
     },

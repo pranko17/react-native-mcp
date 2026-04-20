@@ -2,7 +2,7 @@
 
 **See, drive, and debug a running React Native app from an AI agent — or from any other MCP client.**
 
-`react-native-mcp-kit` connects a running RN app (on simulator, emulator, or physical device) to any process that speaks the [Model Context Protocol](https://modelcontextprotocol.io). You wrap your app in one provider, add a babel plugin, point your AI tool at a small Node server that ships with the package, and every interesting thing inside the app becomes addressable: component trees, navigation state, network traffic, React Query cache, logs, errors, translations, storage — plus the OS gesture pipeline (taps, swipes, text input, screenshots) via a bundled binary that needs no WebDriverAgent or idb.
+`react-native-mcp-kit` connects a running RN app (on simulator, emulator, or physical device) to any process that speaks the [Model Context Protocol](https://modelcontextprotocol.io). You wrap your app in one provider, add a babel plugin, point your AI tool at a small Node server that ships with the package, and every interesting thing inside the app becomes addressable: component trees, navigation state, network traffic, React Query cache, logs, errors, translations, storage — plus the OS gesture pipeline (taps, swipes, text input, screenshots) via a bundled binary that runs with zero external daemons.
 
 ```
 AI Agent / Cursor / Claude Code --stdio/MCP--> Node server --WebSocket--> RN app (device)
@@ -20,6 +20,13 @@ A few concrete scenarios this unlocks:
 - **Write your own tools from inside components.** `useMcpTool`/`useMcpState`/`useMcpModule` let a component expose a named state key or an ad-hoc tool. Agents can then read feature-flag state, force a particular loading scenario, or trigger an internal-only action without you shipping a debug menu.
 
 Everything the library adds to your bundle is stripped in production builds via the companion babel plugin — so you can wire it up once and leave it in, without shipping it to users.
+
+## Example scenarios
+
+- **Reproduce a bug from a ticket, fix it, verify the fix.** The agent reads the reproduction steps, drives the app into the failing state through real taps and swipes, confirms the bug, edits the relevant source, then replays the same sequence to verify the fix — all in one editor session, no rebuilds between steps.
+- **End-to-end flow narrated in plain language.** "Sign in, add an item to the cart, go through checkout, verify the total matches the expected value, screenshot the final screen, and give me a network traffic summary." The agent drives real taps, checks state at each step, snapshots the key screens, and hands back captured request counts / durations / errors as evidence.
+- **Cross-platform parity check.** One agent holds two connected clients, runs the same tap sequence on iOS and Android in parallel, captures screenshots, and points out the differences — catches platform-specific regressions after an RN upgrade, shared-component refactor, or native change.
+- **Implement a feature and verify it end-to-end.** Write the code, then hand the finished feature to the agent — it navigates to the affected screen, exercises the new controls, inspects component state and network calls, and confirms the expected behavior without you having to click through the simulator yourself.
 
 ## Install
 
@@ -164,7 +171,7 @@ What you get:
 - **Device enumeration** — list sims / emulators / devices, annotated with active MCP clients.
 - **Symbolication** — `symbolicate` resolves raw JS stack traces to source paths via Metro.
 
-iOS input goes through a bundled `ios-hid` Swift binary. **No WebDriverAgent, no idb, no Appium server.**
+iOS input goes through a bundled `ios-hid` Swift binary that injects HID events directly into iOS Simulator via private frameworks — no external daemons to install or keep running.
 
 ## Hooks
 

@@ -1,7 +1,7 @@
 {
   "name": "react-native-mcp-kit",
   "version": "2.2.0",
-  "description": "Bidirectional MCP bridge connecting AI agents to running React Native apps",
+  "description": "MCP server for React Native — drive, inspect, and debug running RN apps from AI agents via the real OS gesture pipeline",
   "license": "MIT",
   "author": "Aliaksei Pranko",
   "homepage": "https://github.com/pranko17/react-native-mcp-kit#readme",
@@ -9,22 +9,38 @@
     "type": "git",
     "url": "https://github.com/pranko17/react-native-mcp-kit.git"
   },
+  "bugs": {
+    "url": "https://github.com/pranko17/react-native-mcp-kit/issues"
+  },
   "keywords": [
+    "agent",
+    "agent-testing",
     "ai",
     "ai-testing",
-    "agent",
+    "android",
     "automation",
     "claude",
+    "claude-code",
+    "cursor",
     "debugging",
     "devtools",
+    "e2e",
+    "e2e-testing",
+    "emulator",
     "fiber",
+    "gesture",
+    "hid",
     "inspection",
+    "ios",
     "mcp",
     "model-context-protocol",
     "react-native",
     "rn",
     "screenshot",
-    "testing"
+    "simulator",
+    "test-automation",
+    "testing",
+    "touch-injection"
   ],
   "files": [
     "dist",

@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
@@ -6,6 +9,19 @@ import { DYNAMIC_PREFIX, MODULE_SEPARATOR, type ModuleDescriptor } from '@/share
 
 import { type Bridge, type ClientEntry } from './bridge';
 import { type HostModule, type HostToolHandler } from './host/types';
+
+// Read the shipped package.json so the MCP handshake reports an accurate
+// server version — keeps clients' connection logs in sync with the installed
+// package without a parallel constant to maintain. __dirname at runtime is
+// dist/server, so the relative walk lands on the package root.
+const PACKAGE_VERSION = ((): string => {
+  try {
+    const pkgPath = join(__dirname, '..', '..', 'package.json');
+    return (JSON.parse(readFileSync(pkgPath, 'utf8')) as { version: string }).version;
+  } catch {
+    return '0.0.0';
+  }
+})();
 
 const BASE_INSTRUCTIONS = `You are connected to a running React Native app via the react-native-mcp-kit bridge.
 
@@ -303,7 +319,7 @@ export class McpServerWrapper {
     }
 
     this.mcp = new McpServer(
-      { name: 'react-native-mcp-kit', version: '1.0.0' },
+      { name: 'react-native-mcp-kit', version: PACKAGE_VERSION },
       { instructions: BASE_INSTRUCTIONS }
     );
 

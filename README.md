@@ -145,7 +145,7 @@ Wrap your whole app in it — every optional prop opts a module in when supplied
 
 ## MCP server tools
 
-The Node server itself exposes a small set of entry-point tools for agents: discovering connected clients, browsing what they can do, reading state exposed via `useMcpState`, and dispatching any in-app tool through `call`. Agents see these straight through the MCP interface; you don't register or configure anything on your side.
+The Node server exposes a small set of entry-point tools agents use directly — you don't register or configure them. `call` / `list_tools` / `describe_tool` / `connection_status` / `state_get` / `state_list` cover discovery and dispatch, plus two test-automation helpers: `wait_until` (poll a tool until a predicate holds, replacing screenshot-in-a-loop + sleep) and `assert` (single-shot checkpoint with a standardized diff on failure).
 
 ## Multi-client
 
@@ -153,14 +153,16 @@ One server can hold multiple RN clients at once — iOS simulator, Android emula
 
 ## Host tools (device-level control)
 
-When the `host` module is enabled (the default), the server also exposes tools that operate **on the host machine** — they run `adb` / `xcrun simctl` / a bundled `ios-hid` binary. These work even when the RN app is frozen, not launched yet, or between reloads.
+When the `host` module is enabled (the default), the server exposes tools that operate **on the host machine** — they run `adb` / `xcrun simctl` / a bundled `ios-hid` binary. These work even when the RN app is frozen, not launched yet, or between reloads.
 
 What you get:
 
-- **Real OS input** — tap, swipe, type, press semantic keys. Goes through the real iOS/Android touch pipeline, so Pressable feedback, gesture responders, and hit testing all run as if a human touched the device.
-- **Screenshots** with automatic diffing — the server returns `unchanged:true` when the screen hasn't changed since the last capture, so polling is cheap.
-- **App lifecycle** — launch, terminate, restart an installed app. Useful for cold-start assertions or recovering from a crashed state without clicking the simulator.
-- **Device enumeration** — list all visible simulators / emulators / devices, annotated with which ones have a live MCP client.
+- **Real OS input** — `tap`, `long_press`, `swipe`, `drag`, `type_text`, `type_text_batch`, `press_key`. Goes through the real iOS/Android touch pipeline.
+- **`tap_fiber`** — one call to locate a component via fiber_tree and tap its center. No copy-paste of bounds between calls.
+- **Screenshots** — WebP, auto-diffing (`unchanged: true` on identical frames). Pass `region` in physical pixels to crop to a specific element and keep vision-token cost low.
+- **App lifecycle** — launch, terminate, restart.
+- **Device enumeration** — list sims / emulators / devices, annotated with active MCP clients.
+- **Symbolication** — `symbolicate` resolves raw JS stack traces to source paths via Metro.
 
 iOS input goes through a bundled `ios-hid` Swift binary. **No WebDriverAgent, no idb, no Appium server.**
 
@@ -201,6 +203,7 @@ const UserProvider = ({ children }) => {
 | [errors](#errors)         | `errorsModule(options?)`        | —                                         |
 | [fiber_tree](#fiber_tree) | `fiberTreeModule({ rootRef })`  | root ref (auto-supplied by `McpProvider`) |
 | [i18n](#i18n)             | `i18nextModule(i18n)`           | i18next instance                          |
+| [log_box](#log_box)       | `logBoxModule()`                | —                                         |
 | [navigation](#navigation) | `navigationModule(ref)`         | React Navigation ref                      |
 | [network](#network)       | `networkModule(options?)`       | —                                         |
 | [query](#query)           | `reactQueryModule(queryClient)` | `QueryClient`                             |
@@ -230,29 +233,35 @@ Read-only view of platform facts (OS, version, dimensions in DP and physical pix
 
 ### errors
 
-Captures unhandled JS errors (via `ErrorUtils.setGlobalHandler`) and unhandled promise rejections with deduplication, so the agent can inspect what crashed without tailing native logs.
+Captures unhandled JS errors (via `ErrorUtils.setGlobalHandler`) and unhandled promise rejections. Each entry has parsed `stackFrames` designed to feed into `host__symbolicate` — one call resolves bundle paths back to `src/components/Foo.tsx:42:10`.
 
 ### fiber_tree
 
-The heart of UI inspection. The agent walks the component tree, finds elements by name / testID / text / which callback props they have, reads their props, calls their ref methods, and invokes arbitrary callbacks on them. Coordinates it returns (`bounds`) are in physical pixels and pair directly with `host__tap` / `host__swipe`.
+The heart of UI inspection. Search the component tree via a chained `query`: each step narrows the result with criteria (name / testID / mcpId / text / props matcher / not / any) and a scope (descendants / ancestors / siblings / screen / nearest_host / …). Wrapper cascades (`PressableView → Pressable → View → RCTView`) collapse to the topmost by default. `bounds` come back in physical pixels and pair directly with `host__tap` — or use `host__tap_fiber` for the locate-and-tap shortcut.
 
 ### i18n
 
 Inspect and manipulate an `i18next` instance: list keys, dump a whole translation resource, run a substring search, translate with interpolation, switch language at runtime.
 
+### log_box
+
+Control the React Native LogBox overlay: inspect current rows, dismiss or clear them, add ignore patterns (substring or `/regex/flags`), globally mute. Useful for clearing warning toasts that block automated UI flows. Dev-only — no-op in production.
+
 ### navigation
 
-Drive React Navigation from outside — navigate, push, pop, replace, reset — and read the current route, nested state, and the last 100 transitions with timestamps. Needs a `createNavigationContainerRef()` passed to both `<NavigationContainer ref={…}>` and `<McpProvider navigationRef={…}>` (or `navigationModule(ref)` directly).
+Drive React Navigation from outside — navigate, push, pop, replace, reset — and read the current route, nested state, and the last 100 transitions. Current-route responses include a `screen` field identifying the rendering component (`componentName`, `mcpId`, `filePath`, `line`). Needs a `createNavigationContainerRef()` passed to both `<NavigationContainer ref={…}>` and `<McpProvider navigationRef={…}>`.
 
 ### network
 
-Intercepts `fetch` and `XMLHttpRequest` into a ring buffer — method, URL, status, duration, headers, bodies. The agent can list recent traffic, filter by method/status/URL, find a request by URL substring, see what's in flight, or just the failures. WebSocket, Metro, and symbolicate traffic are auto-ignored.
+Intercepts `fetch` and `XMLHttpRequest` into a ring buffer — method, URL, status, duration, headers, bodies. Bodies are capped per-entry (default 20KB) and sensitive headers / body keys are redacted at capture time (`Authorization`, `Cookie`, `password`, `token`, etc. — configurable). Query tools strip body data by default; fetch a specific body via `get_body({ id })`. WebSocket, Metro, and symbolicate traffic are auto-ignored.
 
 ```ts
 networkModule({
   maxEntries: 200,
-  includeBodies: true,
+  bodyMaxBytes: 10_000,
   ignoreUrls: ['https://analytics.example.com', /\.png$/],
+  redactHeaders: ['authorization'], // or false to disable
+  redactBodyKeys: ['password'],     // or false to disable
 });
 ```
 

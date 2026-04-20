@@ -1,6 +1,6 @@
 # react-native-mcp-kit
 
-**See, drive, and debug a running React Native app from an AI agent — or from any other MCP client.**
+**See, drive, and debug a running React Native app from an AI agent.**
 
 `react-native-mcp-kit` connects a running RN app (on simulator, emulator, or physical device) to any process that speaks the [Model Context Protocol](https://modelcontextprotocol.io). You wrap your app in one provider, add a babel plugin, point your AI tool at a small Node server that ships with the package, and every interesting thing inside the app becomes addressable: component trees, navigation state, network traffic, React Query cache, logs, errors, translations, storage — plus the OS gesture pipeline (taps, swipes, text input, screenshots) via a bundled binary that runs with zero external daemons.
 
@@ -14,7 +14,7 @@ AI Agent / Cursor / Claude Code --stdio/MCP--> Node server --WebSocket--> RN app
 
 A few concrete scenarios this unlocks:
 
-- **End-to-end automation without a separate test harness.** Describe a multi-step flow in natural language — "sign in, open settings, flip the notifications toggle, verify the confirmation toast" — and an agent walks it: locates components by name/testID, fires real taps through the OS gesture pipeline, asserts on the resulting state, and reports back. The same flow works as a scripted smoke test driven by any MCP client.
+- **End-to-end automation without a separate test harness.** Describe a multi-step flow in natural language — "sign in, open settings, flip the notifications toggle, verify the confirmation toast" — and an agent walks it: locates components by name/testID, fires real taps through the OS gesture pipeline, asserts on the resulting state, and reports back.
 - **Interactive inspection of a live app from your editor.** Ask "what screen am I on?", "what React Query keys are stale?", "what did the last POST return?", "which translation keys are missing in the current locale?" — no rebuild, no DevTools panel, no "add more logs and reload" loop.
 - **Debug gesture-arbitration bugs that unit tests can't catch.** `host__tap` goes through the real iOS/Android touch pipeline, so issues like "the close button inside a horizontally-scrolling list swallows taps" surface naturally. `fiber_tree__invoke` bypasses the pipeline for the rare cases you want to call `onPress` directly.
 - **Write your own tools from inside components.** `useMcpTool`/`useMcpState`/`useMcpModule` let a component expose a named state key or an ad-hoc tool. Agents can then read feature-flag state, force a particular loading scenario, or trigger an internal-only action without you shipping a debug menu.

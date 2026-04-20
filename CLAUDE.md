@@ -56,6 +56,9 @@ Talks HTTP to the Metro dev server. The URL is auto-detected per-client at hands
 
 - **Symbolication** (`metro/tools/symbolicate.ts`): `metro__symbolicate({ stack? | frames?, metroUrl?, clientId?, maxFrames?, includeFrameworkFrames?, fullPaths? })` — POSTs to `/symbolicate`. Drops `collapse: true` framework frames by default, caps to 10 frames, shortens absolute paths relative to cwd. Graceful no-op `{ skipped: true, error, frames }` when Metro is unreachable.
 - **Reload** (`metro/tools/reload.ts`): `metro__reload({ metroUrl?, clientId? })` — POSTs to `/reload`. Triggers a full JS reload on every attached app.
+- **Status** (`metro/tools/status.ts`): `metro__status({ metroUrl?, clientId? })` — GETs `/status`. Cheap ping before a chain of Metro calls.
+- **Open in editor** (`metro/tools/openInEditor.ts`): `metro__open_in_editor({ file, lineNumber, column?, metroUrl?, clientId? })` — POSTs to `/open-stack-frame`. Jumps `$REACT_EDITOR` to the exact line. Pairs naturally with `metro__symbolicate` output.
+- **Reporter events** (`metro/tools/events.ts` + `metro/eventCapture.ts`): `metro__get_events({ type?, since?, limit?, metroUrl?, clientId? })` — reads from a server-side ring buffer (200 events) fed by a lazy WebSocket to `/events`. Surfaces `bundle_build_failed`, `bundling_error`, `hmr_client_error`, `hmr_update`, `client_log`, etc. Key use: detecting silent HMR failures when the red box doesn't appear.
 
 **iOS input** goes through `dist/bin/ios-hid` — a Swift CLI (`src/swift/ios-hid.swift`) that injects HID events directly into iOS Simulator via `SimulatorKit` + `CoreSimulator` private frameworks (no WDA, no idb, no Appium). Built during `yarn build` by `scripts/build-ios-hid.sh` as a universal arm64+x86_64 binary. `src/server/host/iosInput.ts` is the TS wrapper that shells out to it.
 

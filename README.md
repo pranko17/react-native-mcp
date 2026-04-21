@@ -14,6 +14,7 @@ AI Agent / Cursor / Claude Code --stdio/MCP--> Node server --WebSocket--> RN app
 
 A few concrete scenarios this unlocks:
 
+- **Drive multiple devices in parallel from one agent session.** iOS simulator, Android emulator, physical device — any mix attaches to the same server. The agent can walk the same flow across platforms side-by-side, catching visual or behavioural regressions that show up on one OS but not the other, without ever leaving the editor.
 - **End-to-end automation without a separate test harness.** Describe a multi-step flow in natural language — "sign in, open settings, flip the notifications toggle, verify the confirmation toast" — and an agent walks it: locates components by name/testID, fires real taps through the OS gesture pipeline, asserts on the resulting state, and reports back.
 - **Interactive inspection of a live app from your editor.** Ask "what screen am I on?", "what React Query keys are stale?", "what did the last POST return?", "which translation keys are missing in the current locale?" — no rebuild, no DevTools panel, no "add more logs and reload" loop.
 - **Debug gesture-arbitration bugs that unit tests can't catch.** Taps go through the real iOS/Android touch pipeline, so issues like "the close button inside a horizontally-scrolling list swallows taps" surface naturally — and when you need to sidestep the pipeline (call a prop directly on a virtualised item, fire a callback on an offscreen component) the bridge offers that too.
@@ -154,10 +155,6 @@ Wrap your whole app in it — every optional prop opts a module in when supplied
 ## MCP server tools
 
 The Node server exposes a small set of entry-point tools agents use directly — you don't register or configure them. `call` / `list_tools` / `describe_tool` / `connection_status` / `state_get` / `state_list` cover discovery and dispatch, plus two test-automation helpers: `wait_until` (poll any tool until a predicate holds, replacing screenshot-in-a-loop + sleep) and `assert` (single-shot checkpoint with a standardized diff on failure). For UI-level waits (wait for a screen, a spinner to disappear, etc.), `fiber_tree__query` has a built-in `waitFor` option — see the [fiber_tree section](#fiber_tree).
-
-## Multi-client
-
-One server can hold multiple RN clients at once — iOS simulator, Android emulator, physical device, any mix. Useful for driving iOS and Android builds of the same app in lockstep from a single agent session.
 
 ## Host tools (device-level control)
 

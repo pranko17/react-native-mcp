@@ -411,8 +411,7 @@ RETURNS
             .optional()
             .describe('Delay between poll attempts. Default 300, min 50, max 5000.'),
           predicate: z
-            .object({})
-            .passthrough()
+            .looseObject({})
             .describe(
               'Leaf { op, path?, value? } or compound { all|any: [...] } / { not: predicate }. See tool description for ops and composition.'
             ),
@@ -517,8 +516,7 @@ Useful after wait_until as a checkpoint — the pair reads "do action → wait �
               'Optional human-readable description of the check; echoed in the failure payload.'
             ),
           predicate: z
-            .object({})
-            .passthrough()
+            .looseObject({})
             .describe(
               'Leaf { op, path?, value? } or compound { all|any: [...] } / { not: predicate }. See wait_until for full semantics.'
             ),

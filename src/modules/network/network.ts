@@ -6,7 +6,12 @@ import { type CapturedBody, type NetworkEntry, type NetworkModuleOptions } from 
 const DEFAULT_MAX_ENTRIES = 100;
 const DEFAULT_BODY_MAX_BYTES = 20_000;
 const DEFAULT_BODY_PREVIEW = 200;
-const DEFAULT_IGNORE_URLS = [/^ws:/, /^wss:/, /localhost:8081/, /symbolicate/];
+const DEFAULT_IGNORE_URLS: Array<string | RegExp> = [
+  /^ws:/,
+  /^wss:/,
+  /localhost:8081/,
+  /symbolicate/,
+];
 
 const DEFAULT_REDACT_HEADERS = [
   'authorization',
@@ -94,8 +99,6 @@ const byteLengthOf = (value: unknown): number => {
   }
 };
 
-// Capture a request/response body under `bodyMaxBytes`. Returns undefined when
-// the payload should not be captured at all (disabled, null, binary).
 const captureBody = (
   raw: unknown,
   bodyMaxBytes: number,
@@ -135,11 +138,6 @@ const toRedactSet = (
   );
 };
 
-/**
- * Strip full-body `data` from an entry, keeping just size + preview. Agents
- * get a lean overview from get_requests/get_errors by default and can reach
- * for `get_body` when they need the payload.
- */
 const withoutBody = (entry: NetworkEntry): NetworkEntry => {
   const req = entry.request.body ? { ...entry.request.body, data: undefined } : undefined;
   const res = entry.response?.body ? { ...entry.response.body, data: undefined } : undefined;
@@ -161,26 +159,37 @@ const percentile = (sorted: number[], p: number): number | null => {
   return sorted[idx]!;
 };
 
-export const networkModule = (options?: NetworkModuleOptions): McpModule => {
-  const maxEntries = options?.maxEntries ?? DEFAULT_MAX_ENTRIES;
-  const includeBodies = options?.includeBodies ?? true;
-  const bodyMaxBytes = includeBodies ? (options?.bodyMaxBytes ?? DEFAULT_BODY_MAX_BYTES) : 0;
-  const ignoreUrls = [...DEFAULT_IGNORE_URLS, ...(options?.ignoreUrls ?? [])];
-  const redactHeaderSet = toRedactSet(options?.redactHeaders, DEFAULT_REDACT_HEADERS);
-  const redactBodyKeySet = toRedactSet(options?.redactBodyKeys, DEFAULT_REDACT_BODY_KEYS);
-  const buffer: NetworkEntry[] = [];
-  let nextId = 1;
+// === Module-level capture state — auto-starts at import time. ===
+//
+// Rationale: without cold-start capture, any fetch / XHR issued before
+// McpProvider mounts (analytics bootstrap, OAuth refresh, config fetch)
+// is invisible to the agent. Installing patches at module-import time
+// catches them. The factory below adopts the already-running buffer and
+// applies caller options (maxEntries, redaction lists) forward.
 
-  const addEntry = (base: Omit<NetworkEntry, 'id'>): NetworkEntry => {
-    const entry: NetworkEntry = { ...base, id: nextId++ };
-    buffer.push(entry);
-    if (buffer.length > maxEntries) {
-      buffer.splice(0, buffer.length - maxEntries);
-    }
-    return entry;
-  };
+const buffer: NetworkEntry[] = [];
+let nextId = 1;
+let maxEntries = DEFAULT_MAX_ENTRIES;
+let bodyMaxBytes = DEFAULT_BODY_MAX_BYTES;
+let ignoreUrls: Array<string | RegExp> = [...DEFAULT_IGNORE_URLS];
+let redactHeaderSet: Set<string> | null = toRedactSet(undefined, DEFAULT_REDACT_HEADERS);
+let redactBodyKeySet: Set<string> | null = toRedactSet(undefined, DEFAULT_REDACT_BODY_KEYS);
 
-  // Intercept global fetch
+const addEntry = (base: Omit<NetworkEntry, 'id'>): NetworkEntry => {
+  const entry: NetworkEntry = { ...base, id: nextId++ };
+  buffer.push(entry);
+  if (buffer.length > maxEntries) {
+    buffer.splice(0, buffer.length - maxEntries);
+  }
+  return entry;
+};
+
+let patchesInstalled = false;
+const installPatches = (): void => {
+  if (patchesInstalled) return;
+  patchesInstalled = true;
+
+  // Intercept global fetch.
   const originalFetch = global.fetch;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (global as any).fetch = async (input: any, init?: any): Promise<Response> => {
@@ -245,9 +254,10 @@ export const networkModule = (options?: NetworkModuleOptions): McpModule => {
     }
   };
 
-  // Intercept XMLHttpRequest
+  // Intercept XMLHttpRequest.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const XHR = (global as any).XMLHttpRequest;
+  if (!XHR) return;
   const originalOpen = XHR.prototype.open;
   const originalSend = XHR.prototype.send;
   const originalSetRequestHeader = XHR.prototype.setRequestHeader;
@@ -315,7 +325,7 @@ export const networkModule = (options?: NetworkModuleOptions): McpModule => {
         } else if (responseType === 'json') {
           responseBody = captureBody(this.response, bodyMaxBytes, redactBodyKeySet);
         } else {
-          // blob | arraybuffer | document — don't serialize binary / DOM payloads
+          // blob | arraybuffer | document — don't serialize binary / DOM payloads.
           responseBody = { bytes: 0, preview: `[${responseType}]` };
         }
       }
@@ -341,8 +351,32 @@ export const networkModule = (options?: NetworkModuleOptions): McpModule => {
 
     return originalSend.call(this, body);
   };
+};
 
-  // Tool response shaping — strip full body unless explicitly requested.
+installPatches();
+
+export const networkModule = (options?: NetworkModuleOptions): McpModule => {
+  if (typeof options?.maxEntries === 'number') {
+    maxEntries = options.maxEntries;
+    if (buffer.length > maxEntries) {
+      buffer.splice(0, buffer.length - maxEntries);
+    }
+  }
+  if (options?.includeBodies === false) {
+    bodyMaxBytes = 0;
+  } else if (typeof options?.bodyMaxBytes === 'number') {
+    bodyMaxBytes = options.bodyMaxBytes;
+  }
+  if (Array.isArray(options?.ignoreUrls)) {
+    ignoreUrls = [...DEFAULT_IGNORE_URLS, ...options.ignoreUrls];
+  }
+  if (options?.redactHeaders !== undefined) {
+    redactHeaderSet = toRedactSet(options.redactHeaders, DEFAULT_REDACT_HEADERS);
+  }
+  if (options?.redactBodyKeys !== undefined) {
+    redactBodyKeySet = toRedactSet(options.redactBodyKeys, DEFAULT_REDACT_BODY_KEYS);
+  }
+
   const project = (entries: NetworkEntry[], full: boolean): NetworkEntry[] => {
     if (full) return entries;
     return entries.map(withoutBody);
@@ -362,7 +396,8 @@ CAPTURE
   (default 20KB); larger payloads keep only a preview + truncated marker.
   Sensitive headers (Authorization, Cookie, Set-Cookie, X-Api-Key, X-Auth-*)
   and body keys (password, token, accessToken, refreshToken, apiKey, secret,
-  otp, pin) are redacted at capture time.
+  otp, pin) are redacted at capture time. Capture starts at module-import
+  time (before React mounts) so cold-start traffic is not lost.
 
 QUERY
   get_requests / get_errors / get_request drop full \`data\` from each body

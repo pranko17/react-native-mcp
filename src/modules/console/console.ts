@@ -69,51 +69,72 @@ const captureStack = (): string | undefined => {
   return lines.slice(4).join('\n');
 };
 
-export const consoleModule = (options?: ConsoleModuleOptions): McpModule => {
-  const levels = options?.levels ?? ALL_LEVELS;
-  const maxEntries = options?.maxEntries ?? DEFAULT_MAX_ENTRIES;
+// === Module-level capture state — auto-starts at import time. ===
+//
+// Rationale: when `McpProvider` mounts, its `useEffect` runs after React's
+// first render — any console.log fired during bundle evaluation or the first
+// render would be lost. Patching at module import time (before React boots)
+// closes that gap. The factory below adopts the pre-existing buffer and
+// applies caller-supplied options retroactively.
 
-  const stackTraceLevels: LogLevel[] =
-    options?.stackTrace === true
-      ? ALL_LEVELS
-      : Array.isArray(options?.stackTrace)
-        ? options.stackTrace
-        : options?.stackTrace === false
-          ? []
-          : DEFAULT_STACK_LEVELS;
+const buffer: LogEntry[] = [];
+let maxEntries = DEFAULT_MAX_ENTRIES;
+let capturedLevels = new Set<LogLevel>(ALL_LEVELS);
+let stackLevels = new Set<LogLevel>(DEFAULT_STACK_LEVELS);
 
-  const buffer: LogEntry[] = [];
-  const originals = new Map<LogLevel, (...args: unknown[]) => void>();
-
-  const addEntry = (level: LogLevel, args: unknown[]) => {
-    const entry: LogEntry = {
-      args: args.map((arg) => {
-        return serializeArg(arg);
-      }),
-      level,
-      timestamp: new Date().toISOString(),
-    };
-
-    if (stackTraceLevels.includes(level)) {
-      entry.stack = captureStack();
-    }
-
-    buffer.push(entry);
-    if (buffer.length > maxEntries) {
-      buffer.splice(0, buffer.length - maxEntries);
-    }
+const addEntry = (level: LogLevel, args: unknown[]): void => {
+  if (!capturedLevels.has(level)) return;
+  const entry: LogEntry = {
+    args: args.map((arg) => {
+      return serializeArg(arg);
+    }),
+    level,
+    timestamp: new Date().toISOString(),
   };
+  if (stackLevels.has(level)) {
+    entry.stack = captureStack();
+  }
+  buffer.push(entry);
+  if (buffer.length > maxEntries) {
+    buffer.splice(0, buffer.length - maxEntries);
+  }
+};
 
-  for (const level of levels) {
+let patchesInstalled = false;
+const installPatches = (): void => {
+  if (patchesInstalled) return;
+  patchesInstalled = true;
+  for (const level of ALL_LEVELS) {
     const original = console[level];
-    originals.set(level, original);
     console[level] = (...args: unknown[]) => {
       addEntry(level, args);
       original.apply(console, args);
     };
   }
+};
 
-  const filterByLevel = (level: LogLevel, slice: unknown) => {
+installPatches();
+
+export const consoleModule = (options?: ConsoleModuleOptions): McpModule => {
+  // Apply options retroactively to the already-running buffer.
+  if (typeof options?.maxEntries === 'number') {
+    maxEntries = options.maxEntries;
+    if (buffer.length > maxEntries) {
+      buffer.splice(0, buffer.length - maxEntries);
+    }
+  }
+  if (options?.levels) {
+    capturedLevels = new Set(options.levels);
+  }
+  if (options?.stackTrace === true) {
+    stackLevels = new Set(ALL_LEVELS);
+  } else if (options?.stackTrace === false) {
+    stackLevels = new Set();
+  } else if (Array.isArray(options?.stackTrace)) {
+    stackLevels = new Set(options.stackTrace);
+  }
+
+  const filterByLevel = (level: LogLevel, slice: unknown): LogEntry[] => {
     const filtered = buffer.filter((entry) => {
       return entry.level === level;
     });
@@ -131,7 +152,9 @@ export const consoleModule = (options?: ConsoleModuleOptions): McpModule => {
 
 Complex values (Errors, Dates, class instances, cyclic refs, functions,
 Symbols) are serialized safely. Stack traces can be captured per level.
-Buffer size and captured levels are configurable via consoleModule options.`,
+Capture starts at module-import time (before React mounts) so cold-start
+logs are not lost. Buffer size and captured levels are configurable via
+consoleModule options.`,
     name: 'console',
     tools: {
       clear_logs: {

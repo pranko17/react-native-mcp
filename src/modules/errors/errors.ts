@@ -42,27 +42,37 @@ const parseStack = (stack: string | undefined): StackFrame[] | undefined => {
   return frames.length > 0 ? frames : undefined;
 };
 
-export const errorsModule = (options?: ErrorsModuleOptions): McpModule => {
-  const maxEntries = options?.maxEntries ?? DEFAULT_MAX_ENTRIES;
-  const buffer: ErrorEntry[] = [];
-  let nextId = 1;
+// === Module-level capture state — auto-starts at import time. ===
+//
+// Critical for cold-start: a fatal error during bundle evaluation or first
+// render would otherwise be invisible because McpProvider's useEffect runs
+// after React has already chosen whether to show the red box. Patching at
+// import time makes early crashes recoverable for the agent.
 
-  const addEntry = (entry: Omit<ErrorEntry, 'id'>) => {
-    // Deduplicate by message + timestamp proximity (within 100ms)
-    const lastEntry = buffer[buffer.length - 1];
-    if (lastEntry && lastEntry.message === entry.message) {
-      const timeDiff =
-        new Date(entry.timestamp).getTime() - new Date(lastEntry.timestamp).getTime();
-      if (Math.abs(timeDiff) < 100) return;
-    }
+const buffer: ErrorEntry[] = [];
+let maxEntries = DEFAULT_MAX_ENTRIES;
+let nextId = 1;
 
-    buffer.push({ ...entry, id: nextId++ });
-    if (buffer.length > maxEntries) {
-      buffer.splice(0, buffer.length - maxEntries);
-    }
-  };
+const addEntry = (entry: Omit<ErrorEntry, 'id'>): void => {
+  // Deduplicate by message + timestamp proximity (within 100ms).
+  const lastEntry = buffer[buffer.length - 1];
+  if (lastEntry && lastEntry.message === entry.message) {
+    const timeDiff = new Date(entry.timestamp).getTime() - new Date(lastEntry.timestamp).getTime();
+    if (Math.abs(timeDiff) < 100) return;
+  }
 
-  // 1. Intercept ErrorUtils global handler (catches fatal JS errors)
+  buffer.push({ ...entry, id: nextId++ });
+  if (buffer.length > maxEntries) {
+    buffer.splice(0, buffer.length - maxEntries);
+  }
+};
+
+let patchesInstalled = false;
+const installPatches = (): void => {
+  if (patchesInstalled) return;
+  patchesInstalled = true;
+
+  // 1. Intercept ErrorUtils global handler (catches fatal JS errors).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ErrorUtilsGlobal = (global as any).ErrorUtils;
   if (ErrorUtilsGlobal) {
@@ -83,12 +93,12 @@ export const errorsModule = (options?: ErrorsModuleOptions): McpModule => {
     });
   }
 
-  // 2. Intercept console.error to catch promise rejections reported by RN
+  // 2. Intercept console.error to catch promise rejections reported by RN.
   const originalConsoleError = console.error;
   console.error = (...args: unknown[]) => {
     const firstArg = args[0];
 
-    // RN reports unhandled promise rejections as console.error with an Error object
+    // RN reports unhandled promise rejections as console.error with an Error object.
     if (firstArg && typeof firstArg === 'object' && 'message' in firstArg) {
       const error = firstArg as { message?: string; name?: string; stack?: string };
       if (error.message?.includes('in promise')) {
@@ -105,13 +115,25 @@ export const errorsModule = (options?: ErrorsModuleOptions): McpModule => {
 
     originalConsoleError.apply(console, args);
   };
+};
+
+installPatches();
+
+export const errorsModule = (options?: ErrorsModuleOptions): McpModule => {
+  if (typeof options?.maxEntries === 'number') {
+    maxEntries = options.maxEntries;
+    if (buffer.length > maxEntries) {
+      buffer.splice(0, buffer.length - maxEntries);
+    }
+  }
 
   return {
     description: `Unhandled JS errors + promise rejections, with stack traces.
 
 Captures via ErrorUtils.setGlobalHandler + console.error sniffing.
-Deduplicates within a 100ms window. Buffer size configurable via
-errorsModule options.`,
+Deduplicates within a 100ms window. Capture starts at module-import
+time (before React mounts) so early fatal crashes are visible to the
+agent. Buffer size configurable via errorsModule options.`,
     name: 'errors',
     tools: {
       clear_errors: {

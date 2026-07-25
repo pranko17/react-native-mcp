@@ -81,22 +81,6 @@ export const logBoxModule = (): McpModule => {
   };
 
   return {
-    description: `Inspect and control the React Native LogBox overlay.
-
-Clear warning toasts that block the UI during tests, suppress noisy
-warnings with ignore patterns, or mute LogBox entirely for a test run.
-LogBox is a dev-only surface — in production these tools are no-ops.
-
-\`get_logs\` accepts path / depth / maxBytes (default depth ${LOGBOX_DEFAULT_DEPTH}).
-
-IGNORE PATTERNS
-  Strings match as substrings. Wrap in /.../flags to use a RegExp,
-  e.g. "/^Warning: /" or "/useNativeDriver/i".
-
-LEVELS
-  get_logs filters by warn / error / fatal / syntax. clear({ level })
-  takes warn / error / syntax (error also clears fatal — RN has no
-  separate fatal clear); clear() clears all.`,
     name: 'log_box',
     tools: {
       clear: {

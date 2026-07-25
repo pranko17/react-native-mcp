@@ -112,84 +112,6 @@ export const fiberTreeModule = (options?: FiberTreeModuleOptions): McpModule => 
   };
 
   return {
-    description: `React fiber tree inspection and interaction.
-
-SCOPES (query steps)
-  Standard tree relations, plus three that need explanation:
-    · root — the React fiber root, regardless of the previous step's
-      match. Use as the first step to start from the top of the tree
-      (e.g. dump the whole tree via select: [{ children: 5 }]).
-    · screen — descendants of the currently focused React Navigation
-      screen fiber. Available when the library was initialized with a
-      navigationRef. Lets a first step skip "find current screen first".
-    · nearest_host — walks down to the first mounted HOST_COMPONENT
-      fiber. Useful before \`call({ method })\` (focus/blur/measure)
-      which requires a host instance.
-
-STEP CRITERIA
-  name / mcpId / testID — exact string OR \`/regex/flags\` slash form
-    (e.g. \`name: "/^Pressable/"\` matches Pressable / PressableView / …).
-    Malformed regex falls back to exact match.
-  text — substring match in RENDERED text only (not prop values). Also
-    accepts \`/regex/flags\`.
-  hasProps — array of prop names that must exist.
-  props — map of prop → matcher:
-    · primitive → strict equality.
-    · { contains: "X" } / { regex: "Y" } → match via String(value); primitives only by default.
-    · add deep: true → also JSON-serialize objects/arrays and match inside.
-  any — array of sub-criteria; OR semantics.
-    Example: { any: [{ name: "Pressable" }, { name: "TouchableOpacity" }] }.
-  not — nested criteria; excludes fibers that match the inner query.
-    Composes with the others: { hasProps: ["onPress"], not: { testID: "loading" } }.
-    Accepts an array for multi-pattern exclusion:
-    { not: [{ name: "Pressable" }, { testID: "loading" }] }.
-  index — pick N-th match from this step; otherwise all matches fan out into the next step.
-
-SELECT (output fields)
-  props, bounds, hooks, refMethods, children are opt-in beyond the
-  default light fields.
-  bounds: { x, y, width, height, centerX, centerY } in PHYSICAL pixels,
-  top-left origin. null when the fiber has no mounted host view. centerX/
-  centerY feed straight into host__tap.
-  refMethods: list of native-ref method names (focus, blur, measure,
-  scrollTo, ...) available on the fiber's host instance. null when
-  there is no native instance (composite wrapper, unmounted,
-  virtualized). Feeds directly into fiber_tree__call({ method }).
-  props: per-field projection — \`{ props: { path?, depth?, maxBytes? } }\`.
-  hooks: filtered + projected — \`{ hooks: { kinds?, names?, withValues?,
-  expansionDepth?, format?, path?, depth?, maxBytes? } }\`. Each entry
-  { kind, name, hook?, mcpId?, via?, expanded?, value? }.
-  children: recursive light-only walker for tree-of-tree navigation —
-  short form { children: 5 } (treeDepth=5) or object form
-  { children: { treeDepth, select?, itemsCap? } }. select inside
-  children may include only mcpId / name / testID / bounds / nested
-  children — props/hooks throw at parse time. Use a second query against
-  a child mcpId to inspect its props/hooks. treeDepth max 16, itemsCap
-  default 50; overflow inserts a \`\${truncated}\` sentinel as the first
-  array item.
-
-RESPONSE
-  { matches: [...], total, truncated? } — total is the unrestricted match
-  count; when the result exceeds limit, truncated: true is added and
-  matches contains the first limit items in DFS order. Narrow the query
-  rather than cranking limit.
-
-  By default wrapper cascades are deduped: a fiber is hidden when any of
-  its ancestors is also a match, so PressableView → Pressable → View →
-  RCTView collapses to the topmost PressableView. Independent siblings
-  are kept. Pass dedup: false to see every layer.
-
-TIPS
-  mcpId format "ComponentName:file:line" — stable across renders.
-  Use query to locate, then call({ prop } or { method }) (bypasses gesture
-  pipeline) or host__tap with bounds (real OS touch) to act. For one-shot
-  real taps, tap_fiber collapses both steps into a single call.
-  When stepping up via scope: "ancestors", prefer filtering by name (or
-  testID/mcpId) over guessing an index — ancestors count is brittle and
-  varies across RN versions.
-  \`text\` matches RENDERED text only — Text children content, not prop
-  values. To match "placeholder: Search" use \`props: { placeholder:
-  { contains: "Search" } }\`.`,
     name: 'fiber_tree',
     tools: {
       call: {
@@ -280,7 +202,7 @@ TIPS
       },
       query: {
         description:
-          'Chain-based fiber search. Each step narrows the result set via `scope` + criteria; multiple matches fan out into the next step. Returns { matches, total, truncated? }. Pass `waitFor` to poll until an element appears or disappears (optionally requiring stability for N ms) instead of a single-shot read. See the module description for scope, criteria, select and response reference.',
+          'Chain-based fiber search. Each step narrows the result set via `scope` + criteria; multiple matches fan out into the next step. Returns { matches, total, truncated? }. Pass `waitFor` to poll until an element appears or disappears (optionally requiring stability for N ms) instead of a single-shot read.',
         handler: async (args) => {
           const inner = async (): Promise<unknown> => {
             const rootError = requireRoot();
@@ -526,7 +448,9 @@ TIPS
                     'self',
                     'siblings',
                   ])
-                  .describe('Fibers considered relative to the previous step matches.')
+                  .describe(
+                    'Fibers considered relative to the previous step matches. Beyond the plain tree relations: `root` starts from the fiber root regardless of the previous match (use as first step to dump the whole tree), `screen` is the focused React Navigation screen (needs navigationRef), `nearest_host` walks down to the first mounted host component (required before `call({ method })`).'
+                  )
                   .meta({ default: 'descendants' })
                   .optional(),
                 testID: z.string().describe('testID — exact or `/regex/flags`.').optional(),
@@ -537,7 +461,9 @@ TIPS
               })
             )
             .min(1)
-            .describe('Ordered step chain. See the module description for full criteria semantics.')
+            .describe(
+              "Ordered step chain: each step's matches become the next step's scope. Criteria within a step are ANDed; string criteria accept an exact value or `/regex/flags`."
+            )
             .meta({
               examples: [
                 [{ hasProps: ['onPress'] }],

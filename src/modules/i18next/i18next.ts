@@ -27,12 +27,6 @@ export const i18nextModule = (i18n: I18nLike): McpModule => {
   };
 
   return {
-    description: `i18next translation inspection + runtime control.
-
-Works against an injected i18next instance. \`language\` and \`namespace\`
-default to the current language / first-registered namespace respectively.
-Interpolation options are passed as a JSON string to keep the schema
-flat.`,
     name: 'i18n',
     tools: {
       change_language: {

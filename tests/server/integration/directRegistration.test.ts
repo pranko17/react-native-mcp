@@ -56,7 +56,6 @@ const realModules: ModuleDescriptor[] = [
   storageModule({ adapter: stub, name: 'mmkv' }),
 ].map((mod) => {
   return {
-    description: mod.description,
     name: mod.name,
     tools: Object.entries(mod.tools).map(([name, tool]) => {
       return {

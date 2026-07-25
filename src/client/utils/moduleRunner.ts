@@ -3,23 +3,18 @@ import { serializeInputSchema } from '@/client/utils/serializeInputSchema';
 import { type ModuleDescriptor, type ToolRequest } from '@/shared/protocol';
 
 export class ModuleRunner {
-  private moduleDescriptions = new Map<string, string>();
   private modules = new Map<string, Record<string, ToolHandler>>();
   private dynamicTools = new Map<string, ToolHandler>();
 
   registerModules(modules: McpModule[]): void {
     for (const mod of modules) {
       this.modules.set(mod.name, mod.tools);
-      if (mod.description) {
-        this.moduleDescriptions.set(mod.name, mod.description);
-      }
     }
   }
 
   unregisterModules(names: string[]): void {
     for (const name of names) {
       this.modules.delete(name);
-      this.moduleDescriptions.delete(name);
     }
   }
 
@@ -57,7 +52,6 @@ export class ModuleRunner {
 
     for (const [name, tools] of this.modules) {
       descriptors.push({
-        description: this.moduleDescriptions.get(name),
         name,
         tools: Object.entries(tools).map(([toolName, tool]) => {
           return {

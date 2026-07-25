@@ -15,7 +15,6 @@ const request = (
 
 const makeNavigationModule = (): McpModule => {
   return {
-    description: 'Screen navigation',
     name: 'navigation',
     tools: {
       go_back: {
@@ -44,7 +43,6 @@ describe('ModuleRunner', () => {
     const descriptors = runner.getModuleDescriptors();
     expect(descriptors).toHaveLength(1);
     expect(descriptors[0]!.name).toBe('navigation');
-    expect(descriptors[0]!.description).toBe('Screen navigation');
 
     const navigate = descriptors[0]!.tools.find((t) => {
       return t.name === 'navigate';

@@ -455,36 +455,6 @@ export const networkModule = (options?: NetworkModuleOptions): McpModule => {
   }
 
   return {
-    description: `Intercepted fetch + XMLHttpRequest — method, URL, status, duration, headers, bodies.
-
-Each entry carries a numeric \`id\`. Bodies are stored raw up to bodyMaxBytes
-(default 20KB); larger payloads collapse at capture time to a \`\${str}\`
-marker. Sensitive headers (Authorization, Cookie, Set-Cookie, X-Api-Key,
-X-Auth-Token, X-Access-Token) and body keys (password, token, accessToken, refreshToken,
-apiKey, secret, otp, pin) are redacted at capture time. Capture starts at
-module-import time so cold-start traffic is not lost.
-
-Listing tools accept path / depth / maxBytes (default depth ${NETWORK_DEFAULT_DEPTH}). WebSocket /
-Metro / symbolicate traffic is auto-ignored. Buffer size, body cap, and
-redaction lists are configurable via networkModule options.
-
-MOCKING — set_mock / list_mocks / remove_mock / clear_mocks. Modes:
-\`replace\` (synthesize status/headers/body, request never leaves the app),
-\`modify\` (real request runs; patch status/headers/body — bodyMergePatch is
-RFC 7396: objects merge deep, null deletes a key; bodyJsonPatch is RFC 6902
-for array surgery: remove/insert/replace by index, applied after the merge
-patch), \`error\` (network failure), \`timeout\`. Matching: first-match-wins
-by insertion order; url is
-a substring or /regex/; optional method, times (consumed per hit),
-bodyContains (substring or /regex/ over the raw request body) and
-bodyMatch (dot-paths into the parsed JSON body — tells apart requests
-that share a URL and differ only in the payload).
-delayMs applies to replace/error/timeout. Mocks work at the XHR layer (RN
-fetch rides on XHR, so both are covered), are volatile — a JS reload clears
-them — and every affected buffer entry carries \`mock: { id, mode,
-originalStatus? }\` so captured traffic never silently lies about being fake.
-Mocked JSON stays in React Query caches after clear_mocks — invalidate via
-the query module when a screen must drop mocked data.`,
     name: 'network',
     tools: {
       clear_mocks: {
@@ -503,7 +473,8 @@ the query module when a screen must drop mocked data.`,
         inputSchema: z.looseObject({}),
       },
       get_requests: {
-        description: 'All captured requests; filterable by method / status / URL substring.',
+        description:
+          'All captured requests; filterable by method / status / URL substring. Capture starts when the app boots, so cold-start traffic is included; WebSocket and Metro/symbolicate traffic is skipped by design. Bodies over bodyMaxBytes (20KB default) are collapsed at capture time — `path` / `depth` cannot recover what was never stored.',
         handler: (args) => {
           let result = [...buffer];
           if (args.method) {
@@ -577,7 +548,7 @@ the query module when a screen must drop mocked data.`,
       },
       set_mock: {
         description:
-          'Register a network mock; returns its id. First matching mock wins. See the module description for modes and matching.',
+          'Register a network mock; returns its id. First matching mock wins. See server instructions § Network mocks.',
         handler: (args) => {
           const result = setMock({
             bodyContains: args.bodyContains as string | undefined,

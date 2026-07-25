@@ -62,15 +62,6 @@ export const reactQueryModule = (queryClient: QueryClientLike): McpModule => {
   };
 
   return {
-    description: `React Query cache inspection + mutation.
-
-Query keys are passed as JSON strings to preserve array structure — e.g.
-'["users","list"]' or '"users"'. Omit \`key\` on \`mutate\` to target every
-cached query at once.
-
-\`get_queries\` returns metadata only (no \`data\`, default depth ${QUERIES_DEFAULT_DEPTH}).
-\`get_data\` returns the full query state for one key (default depth ${DATA_DEFAULT_DEPTH}).
-Both accept path / depth / maxBytes.`,
     name: 'query',
     tools: {
       get_data: {

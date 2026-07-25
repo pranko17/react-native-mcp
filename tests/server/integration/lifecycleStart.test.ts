@@ -18,7 +18,6 @@ vi.setConfig({ testTimeout: 15_000 });
 
 const demoModules: ModuleDescriptor[] = [
   {
-    description: 'Lifecycle demo module',
     name: 'demo',
     tools: [{ description: 'Ping', name: 'ping' }],
   },

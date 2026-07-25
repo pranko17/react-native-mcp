@@ -41,7 +41,6 @@ All other modules use their factory's base name (e.g. `networkModule` → `netwo
 interface McpModule {
   name: string;
   tools: Record<string, ToolHandler>;
-  description?: string;
 }
 
 interface ToolHandler {
@@ -52,7 +51,7 @@ interface ToolHandler {
 }
 ```
 
-The module `description` is markdown. Per-tool `description` + `inputSchema` surface directly in the agent's MCP catalog (tools are registered top-level) — use them for any non-obvious behaviour (defaults, mode flags, output shape); see `fiberTreeModule` for the most elaborate example.
+There is deliberately no module-level `description`: MCP's `tools/list` is flat, so a module has no representation an agent can read. Everything the agent needs goes into the per-tool `description` + `inputSchema` (they surface directly in the catalog) or, when it spans tools, into `BASE_INSTRUCTIONS`. Module-level notes for humans belong in this folder's `CLAUDE.md`. See `fiberTreeModule` for the most elaborate per-tool example.
 
 Returning `null` / `undefined` is fine. Throwing turns into a `tool_response` with `error: error.message`. Tools that need more than 10s for the agent to wait should set an explicit `timeout` (e.g. `alert.show` uses 60s).
 

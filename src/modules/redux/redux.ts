@@ -38,13 +38,6 @@ const parseAction = (raw: unknown): ReduxAction | null => {
 
 export const reduxModule = (store: StoreLike): McpModule => {
   return {
-    description: `Redux store inspection + dispatch.
-
-\`get_state\` returns the whole state tree (default depth ${STATE_DEFAULT_DEPTH} — slices walked one
-level) — drill into a slice via \`path: 'auth.user.email'\`, or pass \`depth: 1\`
-to list slice names only. Accepts path / depth / maxBytes.
-
-\`dispatch\` takes a JSON action string with a string \`type\` (see the tool).`,
     name: 'redux',
     tools: {
       dispatch: {

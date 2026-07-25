@@ -43,21 +43,10 @@ export const storageModule = (...storages: NamedStorage[]): McpModule => {
   };
 
   return {
-    description: `Multi-storage key-value inspection.
-
-Each registered storage has a name and an adapter (MMKV / AsyncStorage /
-custom). Only \`get\` is required on the adapter; \`set\` / \`delete\` /
-\`getAllKeys\` are optional — the corresponding tools return an
-"unsupported" error when absent. Values are JSON-parsed on read when
-possible. The \`storage\` argument picks a named store; omit to target
-the first-registered one.
-
-\`get_item\` returns \`{ key, value }\` (default depth ${ITEM_DEFAULT_DEPTH}); \`get_all\` returns
-key→value object (default depth ${ALL_DEFAULT_DEPTH}). Both accept path / depth / maxBytes.`,
     name: 'storage',
     tools: {
       delete_item: {
-        description: 'Delete a key.',
+        description: 'Delete a key. Errors as unsupported when the adapter has no delete.',
         handler: async (args) => {
           const storage = getStorage(args.storage as string | undefined);
           if (!storage) return { error: 'Storage not found' };
@@ -123,7 +112,8 @@ key→value object (default depth ${ALL_DEFAULT_DEPTH}). Both accept path / dept
         }),
       },
       list_keys: {
-        description: 'All keys in a storage.',
+        description:
+          'All keys in a storage. Errors as unsupported when the adapter has no getAllKeys.',
         handler: async (args) => {
           const storage = getStorage(args.storage as string | undefined);
           if (!storage) return { error: 'Storage not found' };
@@ -152,7 +142,8 @@ key→value object (default depth ${ALL_DEFAULT_DEPTH}). Both accept path / dept
         inputSchema: z.looseObject({}),
       },
       set_item: {
-        description: 'Write a value. Objects/arrays are stringified as JSON.',
+        description:
+          'Write a value. Objects/arrays are stringified as JSON. Errors as unsupported when the adapter is read-only.',
         handler: async (args) => {
           const storage = getStorage(args.storage as string | undefined);
           if (!storage) return { error: 'Storage not found' };

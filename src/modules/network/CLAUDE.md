@@ -67,7 +67,7 @@ Description (line 378) doubles as agent-facing guidance. `inputSchema` uses the 
 
 ## Mocks ([mocks.ts](mocks.ts))
 
-Engine: store + matcher + XHR appliers. Tools: `set_mock` / `list_mocks` / `remove_mock` / `clear_mocks`; modes `replace` / `modify` / `error` / `timeout` (see the module description string for agent-facing semantics).
+Engine: store + matcher + XHR appliers. Tools: `set_mock` / `list_mocks` / `remove_mock` / `clear_mocks`; modes `replace` / `modify` / `error` / `timeout` (agent-facing semantics live in `BASE_INSTRUCTIONS` § Network mocks).
 
 Invariants:
 

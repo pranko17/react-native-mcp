@@ -30,5 +30,4 @@ export interface HostToolHandler {
 export interface HostModule {
   name: string;
   tools: Record<string, HostToolHandler>;
-  description?: string;
 }

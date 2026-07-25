@@ -14,7 +14,6 @@ interface AlertButton {
 
 export const alertModule = (): McpModule => {
   return {
-    description: 'Show native Alert.alert dialogs and get back which button was pressed.',
     name: 'alert',
     tools: {
       show: {

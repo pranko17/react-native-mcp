@@ -4,7 +4,7 @@ Server-side tools that drive the device at OS level — `xcrun simctl` / `adb` /
 
 ## Module wiring
 
-[hostModule.ts](hostModule.ts) is a tiny factory: takes a `ProcessRunner`, returns a `HostModule` with the 15 tool factories invoked once. Per-tool descriptions live alongside each handler in [tools/](tools/) — the module-level description in `hostModule.ts` covers backends + the coordinate-system invariant (physical pixels, top-left origin, match `fiber_tree` bounds).
+[hostModule.ts](hostModule.ts) is a tiny factory: takes a `ProcessRunner`, returns a `HostModule` with the 15 tool factories invoked once. Per-tool descriptions live alongside each handler in [tools/](tools/); there is no module-level description, so the coordinate-system invariant (physical pixels, top-left origin, matching `fiber_tree` bounds) is stated on the tools that take coordinates.
 
 Tools registered:
 

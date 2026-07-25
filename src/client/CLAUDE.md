@@ -11,7 +11,7 @@ The in-app side of the bridge. Owns the singleton `McpClient`, the `<McpProvider
 - `useMcpTool`, `useMcpModule` — registration hooks.
 - Types: `McpContextValue`, `McpProviderProps`, `McpModule`, `ToolHandler`.
 
-`McpModule` / `ToolHandler` ([`models/types.ts`](models/types.ts)) is the contract every module fulfils — `{ name, tools: Record<string, ToolHandler>, description? }` with `ToolHandler = { description, handler, inputSchema?, timeout? }`. The optional `description` is markdown; per-tool `description` + `inputSchema` surface directly in the agent's MCP catalog.
+`McpModule` / `ToolHandler` ([`models/types.ts`](models/types.ts)) is the contract every module fulfils — `{ name, tools: Record<string, ToolHandler> }` with `ToolHandler = { description, handler, inputSchema?, timeout? }`. There is no module-level description — only per-tool `description` + `inputSchema` reach the agent's MCP catalog.
 
 ## `<McpProvider>` — the entry point
 

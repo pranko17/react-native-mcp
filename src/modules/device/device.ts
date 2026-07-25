@@ -172,23 +172,6 @@ export const deviceModule = (): McpModule => {
   };
 
   return {
-    description: `Device + platform introspection, plus a few imperative actions (open URL, dismiss keyboard, reload, vibrate).
-
-Dimension helpers return values in both logical DP and physical pixels —
-physical pixel helpers (screenPixels / windowPixels under \`dimensions\`)
-match what host__tap / adb input tap consume.
-
-READS
-  info({ select? }) — one aggregate device/platform read (platform,
-  dimensions, appState, accessibility, keyboard, battery, identity, app, …).
-  DI-backed fields (identity / app / battery / memoryStorage) need
-  react-native-device-info, else return { unavailable: true, reason }.
-  Pass \`select\` to limit; see the tool for the full field list.
-
-ACTIONS (see each tool)
-  open_url({ url, dryRun? }) · open_settings · dismiss_keyboard ·
-  reload (dev only) · vibrate({ duration? }) — duration 0 falls back to
-  the default; iOS ignores duration.`,
     name: 'device',
     tools: {
       dismiss_keyboard: {
@@ -200,7 +183,7 @@ ACTIONS (see each tool)
         },
       },
       info: {
-        description: `Aggregate device / platform introspection. Pass \`select\` to limit to specific fields; omit for the full payload. Fields backed by react-native-device-info (identity / app / battery / memoryStorage) return \`{ unavailable: true, reason }\` when the package isn't installed.`,
+        description: `Aggregate device / platform introspection. Pass \`select\` to limit to specific fields; omit for the full payload. \`dimensions\` reports both logical DP and physical pixels — feed the PIXEL helpers (screenPixels / windowPixels) to host__tap and friends, since gesture tools take physical pixels. Fields backed by react-native-device-info (identity / app / battery / memoryStorage) return \`{ unavailable: true, reason }\` when the package isn't installed.`,
         handler: async (args) => {
           const requested = Array.isArray(args.select)
             ? (args.select as string[]).filter((f): f is InfoField => {

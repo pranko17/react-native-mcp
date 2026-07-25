@@ -17,7 +17,7 @@ import { INPUT_TIMEOUT_MS } from './constants';
 export const tapTool = (runner: ProcessRunner): HostToolHandler => {
   return {
     description:
-      'Primary way to deliver a tap to the app, at physical-pixel (x, y). Runs through the real OS gesture pipeline so Pressable feedback, gesture responders, and hit-test all fire. For a fiber-targeted tap without copying bounds by hand, prefer host__tap_fiber.',
+      'Primary way to deliver a tap to the app, at physical-pixel (x, y) — the same coordinate space as fiber_tree bounds, so `centerX` / `centerY` feed straight in. Runs through the real OS gesture pipeline so Pressable feedback, gesture responders, and hit-test all fire. For a fiber-targeted tap without copying bounds by hand, prefer host__tap_fiber.',
     handler: async (args, ctx) => {
       const resolved = await resolveDevice(ctx, parseResolveOptions(args), runner);
       if (!resolved.ok) {

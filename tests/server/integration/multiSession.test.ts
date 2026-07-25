@@ -41,7 +41,6 @@ const echoHostModule: HostModule = {
 
 const demoModules: ModuleDescriptor[] = [
   {
-    description: 'Demo module',
     name: 'demo',
     tools: [{ description: 'Ping the app', name: 'ping' }],
   },

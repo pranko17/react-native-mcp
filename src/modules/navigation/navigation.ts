@@ -209,34 +209,11 @@ export const navigationModule = (navigation: NavigationRef): McpModule => {
   };
 
   return {
-    description: `React Navigation control + 100-entry transition history.
-
-SCREEN ENRICHMENT
-  get_current_route includes a \`screen\` field pointing at the React
-  component rendering the focused route:
-    screen: { componentName, mcpId?, filePath?, line? }
-  componentName is the developer's component (RN Navigation wrappers are
-  skipped). mcpId / filePath / line come from the first data-mcp-id inside
-  the screen — the rendering site, ready for fiber_tree follow-ups.
-
-READS
-  get_current_route({ withState? }) — focused route + screen info; pass
-  withState:true to also include nested navigator state.
-  get_state — full navigation state tree.
-  get_history — last 100 transitions (consecutive same-route entries deduped).
-  All reads accept path / depth / maxBytes — defaults: state ${STATE_DEFAULT_DEPTH},
-  history ${HISTORY_DEFAULT_DEPTH}, routes ${ROUTE_DEFAULT_DEPTH}.
-
-ACTIONS (see each tool for arg detail)
-  navigate({ screen, params?, mode? }) — mode reuse (default) / push / replace.
-  pop({ to?, params? }) — to: N / screen name / "top"; omit to pop 1.
-  reset({ routes, index? }) — replace the navigator stack.
-  go_back — guarded goBack; { success: false, reason } when nothing to pop.`,
     name: 'navigation',
     tools: {
       get_current_route: {
         description:
-          "Focused route info — name, params, and a `screen` field for the rendering component. Pass `withState: true` to also include the focused route's full state (`key`, nested navigator state under `focusedChild`); otherwise returns the lean route summary.",
+          "Focused route info — name, params, and a `screen` field for the rendering component: `{ componentName, mcpId?, filePath?, line? }`, where componentName is the developer's component (navigator wrappers skipped) and mcpId / filePath / line point at the rendering site — feed mcpId into fiber_tree, or open filePath:line directly. Pass `withState: true` to also include the focused route's full state (`key`, nested navigator state under `focusedChild`); otherwise returns the lean route summary.",
         handler: (args) => {
           const withState = args.withState === true;
           if (withState) {

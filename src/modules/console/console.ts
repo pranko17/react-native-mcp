@@ -132,16 +132,6 @@ export const consoleModule = (options?: ConsoleModuleOptions): McpModule => {
   }
 
   return {
-    description: `Ring buffer of console.{log,warn,error,info,debug,trace,group,groupCollapsed,groupEnd}.
-
-Each entry carries a monotonic numeric \`id\`. Args are stored raw; the
-shared projection runs at query time. Stack traces captured per level
-(default error+warn+trace). \`trace\` always carries a stack; \`group\` /
-\`groupCollapsed\` / \`groupEnd\` are recorded structurally so the agent
-sees nesting context even when RN's console doesn't surface them. Listing
-tools accept path / depth / maxBytes. Capture starts at module-import time
-so cold-start logs are not lost. Buffer size and captured levels are
-configurable via consoleModule options.`,
     name: 'console',
     tools: {
       clear_logs: {
@@ -152,7 +142,8 @@ configurable via consoleModule options.`,
         },
       },
       get_logs: {
-        description: 'Captured console entries; filter by level (omit for all).',
+        description:
+          'Captured console entries; filter by level (omit for all). Each entry has a monotonic numeric `id`. Capture starts when the app boots, so cold-start logs are included.',
         handler: (args) => {
           const level = typeof args.level === 'string' ? (args.level as LogLevel) : undefined;
           const result = level ? filterByLevel(level) : buffer;

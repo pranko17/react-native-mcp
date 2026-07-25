@@ -148,15 +148,6 @@ export const errorsModule = (options?: ErrorsModuleOptions): McpModule => {
   }
 
   return {
-    description: `Unhandled JS errors + promise rejections, with stack traces.
-
-Captures via ErrorUtils.setGlobalHandler + console.error sniffing.
-Deduplicates within a 100ms window. Capture starts at module-import
-time so early fatal crashes are visible. Each entry carries a monotonic
-numeric \`id\`, parsed \`stackFrames\` (V8 + Hermes formats, ready for
-metro__symbolicate), and the raw \`stack\` string. Listing tools accept
-path / depth / maxBytes. Buffer size configurable via errorsModule
-options.`,
     name: 'errors',
     tools: {
       clear_errors: {
@@ -167,7 +158,8 @@ options.`,
         },
       },
       get_errors: {
-        description: 'Captured errors; filter by source / fatal / time range (since / until).',
+        description:
+          'Captured errors; filter by source / fatal / time range (since / until). Each entry has a monotonic numeric `id`. Repeats within 100ms are deduplicated, and capture starts when the app boots, so early crashes are included.',
         handler: (args) => {
           let result = [...buffer];
           if (args.source) {

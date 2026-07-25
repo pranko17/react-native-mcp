@@ -313,6 +313,14 @@ func performType(
         let pbcopy = Process()
         pbcopy.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
         pbcopy.arguments = ["simctl", "pbcopy", udid]
+        // simctl decodes stdin using the locale's charset. Inherited from a
+        // daemon there is usually no LANG at all, so UTF-8 bytes get read as
+        // MacRoman and "ноутбук" lands on the pasteboard as "–Ω–æ—É—Ç–±—É–∫".
+        // Force UTF-8 rather than trusting whatever the parent process had.
+        var env = ProcessInfo.processInfo.environment
+        env["LC_ALL"] = "en_US.UTF-8"
+        env["LANG"] = "en_US.UTF-8"
+        pbcopy.environment = env
         let pipe = Pipe()
         pipe.fileHandleForWriting.write(content.data(using: .utf8) ?? Data())
         pipe.fileHandleForWriting.closeFile()

@@ -6,13 +6,13 @@ import { typeTextIos } from '@/server/host/iosInput';
 import { type ProcessRunner } from '@/server/host/processRunner';
 import { type HostToolHandler } from '@/server/host/types';
 
-import { typeTextAndroid } from './android';
+import { type ClipboardWriter, typeTextAndroid } from './android';
 import { INPUT_TIMEOUT_MS } from './constants';
 
 export const typeTextTool = (runner: ProcessRunner): HostToolHandler => {
   return {
     description:
-      "Primary way to type into the currently focused text input — replaces existing content (select-all then paste). submit:true presses ENTER after typing. iOS: unicode via clipboard paste, keyboard-layout immune. Android: ASCII only (adb input text limitation); for non-Latin scripts fall back to fiber_tree__call on the input's onChangeText.",
+      'Primary way to type into the currently focused text input — replaces existing content (select-all then type). submit:true presses ENTER after typing. Both platforms are keyboard-layout immune: iOS always pastes from the simulator clipboard, Android types ASCII through adb and pastes anything non-ASCII (Cyrillic, CJK, emoji) from the device clipboard, which needs a connected app. Tap the field first — with nothing focused the keystrokes go nowhere.',
     handler: async (args, ctx) => {
       const resolved = await resolveDevice(ctx, parseResolveOptions(args), runner);
       if (!resolved.ok) {
@@ -23,10 +23,30 @@ export const typeTextTool = (runner: ProcessRunner): HostToolHandler => {
         return { error: "'text' is required and must be a string" };
       }
       const submit = args.submit === true;
+      // Android's non-ASCII path pastes from the device clipboard, and only the
+      // app can write it. Call the module method straight over the bridge
+      // rather than through `dispatch`: `device.set_clipboard` is internal, so
+      // it is absent from the registry and dispatch would not resolve it —
+      // which is the point, the agent sees one tool, not two.
+      const setClipboard: ClipboardWriter = async (value) => {
+        const resolution = ctx.bridge.resolveClient(ctx.requestedClientId);
+        if (!resolution.ok) return { error: resolution.error, ok: false };
+        try {
+          const payload = (await ctx.bridge.call(resolution.client.id, 'device', 'set_clipboard', {
+            text: value,
+          })) as { error?: string } | null;
+          if (payload && typeof payload.error === 'string') {
+            return { error: payload.error, ok: false };
+          }
+          return { ok: true };
+        } catch (err) {
+          return { error: (err as Error).message, ok: false };
+        }
+      };
       const result =
         resolved.device.platform === 'ios'
           ? await typeTextIos(resolved.device.nativeId, text, submit, runner)
-          : await typeTextAndroid(resolved.device.nativeId, text, submit, runner);
+          : await typeTextAndroid(resolved.device.nativeId, text, submit, runner, setClipboard);
       if ('error' in result) {
         return { error: result.error };
       }

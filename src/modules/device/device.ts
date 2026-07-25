@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { type McpModule } from '@/client/models/types';
-import { getRN } from '@/shared/rn/core';
+import { getRN, loadRNInternal } from '@/shared/rn/core';
 import {
   callDI,
   callDIAsync,
@@ -259,6 +259,34 @@ export const deviceModule = (): McpModule => {
           DevSettings.reload();
           return { success: true };
         },
+      },
+      set_clipboard: {
+        description:
+          'Put text on the device clipboard. Internal: this is how host__type_text delivers non-ASCII on Android, where only the app can write the clipboard.',
+        handler: async (args) => {
+          const text = typeof args.text === 'string' ? args.text : undefined;
+          if (text === undefined) {
+            return { error: "'text' is required and must be a string" };
+          }
+          // Reach for the internal path rather than RN's root export: the
+          // latter is a deprecation-warning getter, and warning on every
+          // keystroke would drown the app's own logs.
+          const Clipboard = loadRNInternal('Libraries/Components/Clipboard/Clipboard') as {
+            setString?: (value: string) => void;
+          } | null;
+          if (typeof Clipboard?.setString !== 'function') {
+            return {
+              error:
+                'Clipboard is unavailable in this React Native build. Non-ASCII typing on Android needs it — install a clipboard module or drive the input via fiber_tree__call.',
+            };
+          }
+          Clipboard.setString(text);
+          return { length: text.length, success: true };
+        },
+        inputSchema: z.looseObject({
+          text: z.string().describe('Text to place on the clipboard.'),
+        }),
+        internal: true,
       },
       vibrate: {
         description: 'Vibrate the device.',

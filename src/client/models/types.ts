@@ -4,6 +4,13 @@ export interface ToolHandler {
   description: string;
   handler: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   inputSchema?: ZodType;
+  /**
+   * Callable over the bridge but kept out of the registration descriptor, so
+   * it never reaches an agent's catalog. For plumbing a host tool needs inside
+   * the app — `device.set_clipboard` backing `host__type_text` on Android —
+   * where exposing a second tool would only invite calling it by hand.
+   */
+  internal?: boolean;
   timeout?: number;
 }
 

@@ -56,6 +56,12 @@ export const loadRN = (): AnyRN | null => {
 // require fires on demand (and lazy-fails when the path moved in a newer RN).
 /* eslint-disable @typescript-eslint/no-require-imports */
 const RN_INTERNAL_LOADERS: Record<RNInternalPath, () => unknown> = {
+  // Deprecated in RN's root export (accessing `RN.Clipboard` warns), but the
+  // module itself is still shipped — reached directly so typing on Android
+  // doesn't spam the app's console on every call.
+  'Libraries/Components/Clipboard/Clipboard': () => {
+    return require('react-native/Libraries/Components/Clipboard/Clipboard');
+  },
   'Libraries/Core/Devtools/getDevServer': () => {
     return require('react-native/Libraries/Core/Devtools/getDevServer');
   },
@@ -70,7 +76,9 @@ const RN_INTERNAL_LOADERS: Record<RNInternalPath, () => unknown> = {
  * alongside any new path — keeps Metro's static analyser happy.
  */
 export type RNInternalPath =
-  'Libraries/Core/Devtools/getDevServer' | 'Libraries/LogBox/Data/LogBoxData';
+  | 'Libraries/Components/Clipboard/Clipboard'
+  | 'Libraries/Core/Devtools/getDevServer'
+  | 'Libraries/LogBox/Data/LogBoxData';
 
 /**
  * Try-load a private RN sub-module by path. RN doesn't promise these paths

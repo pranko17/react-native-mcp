@@ -57,14 +57,20 @@ const realModules: ModuleDescriptor[] = [
 ].map((mod) => {
   return {
     name: mod.name,
-    tools: Object.entries(mod.tools).map(([name, tool]) => {
-      return {
-        description: tool.description,
-        inputSchema: serializeInputSchema(tool.inputSchema),
-        name,
-        timeout: tool.timeout,
-      };
-    }),
+    // Mirrors ModuleRunner.getModuleDescriptors, `internal` filter included —
+    // internal tools stay callable over the bridge but are never advertised.
+    tools: Object.entries(mod.tools)
+      .filter(([, tool]) => {
+        return tool.internal !== true;
+      })
+      .map(([name, tool]) => {
+        return {
+          description: tool.description,
+          inputSchema: serializeInputSchema(tool.inputSchema),
+          name,
+          timeout: tool.timeout,
+        };
+      }),
   };
 });
 

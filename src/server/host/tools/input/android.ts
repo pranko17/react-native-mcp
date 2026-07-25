@@ -70,21 +70,9 @@ export const swipeAndroid = (
   );
 };
 
-export const typeTextAndroid = async (
-  serial: string,
-  text: string,
-  submit: boolean,
-  runner: ProcessRunner
-): Promise<{ ok: true } | AppTargetError> => {
-  if (NON_ASCII_RE.test(text)) {
-    return {
-      error:
-        'Android type_text only supports ASCII — `adb shell input text` has no code path for non-ASCII characters. Workarounds: tap the target field then drive the content some other way (e.g. fiber_tree__call on onChangeText), or paste from the device clipboard via a helper app.',
-    };
-  }
-
-  // Select all + delete existing text first (consistent with iOS behavior).
-  // `input keycombination` sends keys simultaneously (Ctrl+A = select all).
+// Select all + delete, so typing replaces rather than appends (matches iOS).
+// `input keycombination` sends keys simultaneously (Ctrl+A = select all).
+const clearField = async (serial: string, runner: ProcessRunner): Promise<void> => {
   try {
     const selAll = await runner(
       'adb',
@@ -99,6 +87,59 @@ export const typeTextAndroid = async (
   } catch {
     // keycombination not supported — skip clear, just append
   }
+};
+
+/**
+ * Non-ASCII path: `adb shell input text` cannot encode it at all, so the text
+ * goes onto the device clipboard (through the app, which is the only side that
+ * can write it) and is delivered with a real KEYCODE_PASTE. That keeps the
+ * input a genuine system paste — the focused field's own handlers run — rather
+ * than a prop assignment behind React's back.
+ */
+const pasteTextAndroid = async (
+  serial: string,
+  text: string,
+  runner: ProcessRunner,
+  setClipboard: ClipboardWriter
+): Promise<{ ok: true } | AppTargetError> => {
+  const written = await setClipboard(text);
+  if (!written.ok) {
+    return {
+      error: `Android cannot type non-ASCII via adb, and the clipboard fallback failed: ${written.error} Alternatively drive the field via fiber_tree__call on its onChangeText.`,
+    };
+  }
+  await clearField(serial, runner);
+  return runAdbInput(serial, ['keyevent', 'KEYCODE_PASTE'], runner, 'paste');
+};
+
+/** Writes text to the device clipboard via the connected app. */
+export type ClipboardWriter = (
+  text: string
+) => Promise<{ ok: true } | { error: string; ok: false }>;
+
+export const typeTextAndroid = async (
+  serial: string,
+  text: string,
+  submit: boolean,
+  runner: ProcessRunner,
+  setClipboard?: ClipboardWriter
+): Promise<{ ok: true } | AppTargetError> => {
+  if (NON_ASCII_RE.test(text)) {
+    if (!setClipboard) {
+      return {
+        error:
+          'Android type_text only supports ASCII — `adb shell input text` has no code path for non-ASCII characters, and the clipboard fallback needs a connected app. Connect the app, or drive the field via fiber_tree__call on its onChangeText.',
+      };
+    }
+    const pasted = await pasteTextAndroid(serial, text, runner, setClipboard);
+    if ('error' in pasted) return pasted;
+    if (submit) {
+      return runAdbInput(serial, ['keyevent', 'KEYCODE_ENTER'], runner, 'submit');
+    }
+    return pasted;
+  }
+
+  await clearField(serial, runner);
 
   const escaped = escapeAdbInputText(text);
   const typed = await runAdbInput(serial, ['text', escaped], runner, 'text');

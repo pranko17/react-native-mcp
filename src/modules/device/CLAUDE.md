@@ -58,6 +58,10 @@ Read through `getRN()` — these never error in-app.
 
 `DevSettings.reload()` — equivalent to pressing R in Metro. No explicit `__DEV__` gate in the handler; `DevSettings` is the dev-only RN module so this is effectively a no-op (or throws) in production bundles. Prefer `metro__reload` from the server side when the app may be paused.
 
+### `set_clipboard({ text })`
+
+`Clipboard.setString(text)` via `loadRNInternal('Libraries/Components/Clipboard/Clipboard')` — the internal path rather than RN's root export, whose getter logs a deprecation warning on every access. Exists because `host__type_text` cannot deliver non-ASCII to Android through adb and pastes it instead; see [`src/server/host/CLAUDE.md`](../../server/host/CLAUDE.md). Returns an actionable error when the RN build no longer ships the module.
+
 ### `vibrate({ duration? })`
 
 `Vibration.vibrate(duration ?? 400)` — duration defaults to 400ms when omitted or zero ([device.ts:290](device.ts), uses `||` not `??` so `duration: 0` also falls back).

@@ -53,14 +53,21 @@ export class ModuleRunner {
     for (const [name, tools] of this.modules) {
       descriptors.push({
         name,
-        tools: Object.entries(tools).map(([toolName, tool]) => {
-          return {
-            description: tool.description,
-            inputSchema: serializeInputSchema(tool.inputSchema),
-            name: toolName,
-            timeout: tool.timeout,
-          };
-        }),
+        // `internal` tools stay callable through the bridge (handleRequest
+        // reads the full map) but are omitted here, so they never enter the
+        // server registry or an agent's catalog.
+        tools: Object.entries(tools)
+          .filter(([, tool]) => {
+            return tool.internal !== true;
+          })
+          .map(([toolName, tool]) => {
+            return {
+              description: tool.description,
+              inputSchema: serializeInputSchema(tool.inputSchema),
+              name: toolName,
+              timeout: tool.timeout,
+            };
+          }),
       });
     }
 

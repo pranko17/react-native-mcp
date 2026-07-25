@@ -9,6 +9,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import WebSocket from 'ws';
 
 import { Bridge } from '@/server/bridge';
 import { hostModule } from '@/server/host';
@@ -19,6 +20,7 @@ import {
   type ProcessRunner,
 } from '@/server/host/processRunner';
 import { McpServerWrapper } from '@/server/mcpServer';
+import { PROTOCOL_VERSION, type ServerMessage, type ToolResponse } from '@/shared/protocol';
 
 vi.setConfig({ testTimeout: 15_000 });
 
@@ -330,6 +332,66 @@ describe('host input tools Android (integration)', () => {
     });
     expect(payload).toMatchObject({ failedAt: 1, filled: 1 });
     expect(String(payload.error)).toContain('ASCII');
+  });
+
+  // Non-ASCII cannot go through `adb shell input text` at all, so the tool
+  // routes it to the app's clipboard and delivers a real KEYCODE_PASTE. This
+  // covers that hand-off end to end: the app records what it was asked to
+  // copy, and the device sees clear + paste rather than a `text` invocation.
+  it('host__type_text pastes non-ASCII via the app clipboard', async () => {
+    const clipboardArgs: unknown[] = [];
+    const ws = new WebSocket(`ws://localhost:${bridge.boundPort()}`);
+    ws.on('error', () => {});
+    ws.on('message', (data) => {
+      const msg = JSON.parse(String(data)) as ServerMessage;
+      if (msg.type === 'server_hello') {
+        ws.send(
+          JSON.stringify({
+            // Deliberately advertises no tools: `set_clipboard` is internal,
+            // so it never appears in a descriptor — the call still has to land.
+            modules: [{ name: 'device', tools: [] }],
+            platform: 'android',
+            protocolVersion: PROTOCOL_VERSION,
+            type: 'registration',
+          })
+        );
+      }
+      if (msg.type === 'tool_request') {
+        clipboardArgs.push(msg.args);
+        const response: ToolResponse = {
+          id: msg.id,
+          result: { length: 6, success: true },
+          type: 'tool_response',
+        };
+        ws.send(JSON.stringify(response));
+      }
+    });
+
+    try {
+      await vi.waitFor(() => {
+        expect(bridge.listClients()).toHaveLength(1);
+      });
+      clearDeviceCache();
+      runnerCalls.length = 0;
+
+      const payload = await callToolJson('host__type_text', {
+        platform: 'android',
+        text: 'привет',
+      });
+
+      expect(payload).toMatchObject({ typed: true });
+      expect(clipboardArgs).toEqual([{ text: 'привет' }]);
+      expect(
+        runnerCalls.filter((call) => {
+          return call.args.includes('input');
+        })
+      ).toEqual([...CLEAR_FIELD_CALLS, shellInput('keyevent', 'KEYCODE_PASTE')]);
+    } finally {
+      ws.close();
+      await vi.waitFor(() => {
+        expect(bridge.listClients()).toHaveLength(0);
+      });
+    }
   });
 
   it('maps ProcessNotFoundError from the runner to a missing-adb message', async () => {

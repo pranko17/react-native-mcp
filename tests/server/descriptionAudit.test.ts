@@ -158,7 +158,7 @@ describe('description audit across all built-in modules', () => {
       const properties = catalog.properties as
         Record<string, Record<string, unknown> | undefined> | undefined;
       expect(properties?.clientId, toolId).toBeDefined();
-      expect(properties?.clientId?.description, toolId).toContain('Target client ID');
+      expect(properties?.clientId?.description, toolId).toContain('Target client');
     }
   });
 

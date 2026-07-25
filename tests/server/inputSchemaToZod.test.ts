@@ -14,7 +14,7 @@ describe('convertInputSchema', () => {
   it('injects an optional described clientId into an empty schema', () => {
     const catalog = toCatalog(convertInputSchema(undefined));
     expect(catalog.properties.clientId).toBeDefined();
-    expect(catalog.properties.clientId!.description).toContain('Target client ID');
+    expect(catalog.properties.clientId!.description).toContain('Target client');
     expect(catalog.required ?? []).not.toContain('clientId');
   });
 
@@ -83,7 +83,7 @@ describe('convertInputSchema', () => {
       })
     );
     expect(catalog.properties.to!.description).toBe('Pop target');
-    expect(catalog.properties.clientId!.description).toContain('Target client ID');
+    expect(catalog.properties.clientId!.description).toContain('Target client');
   });
 
   it('falls back to a permissive schema on unresolvable JSON Schema', () => {

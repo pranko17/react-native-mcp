@@ -71,9 +71,7 @@ export const makeProjectionSchema = (
     arrayCap: z
       .number()
       .min(1)
-      .describe(
-        `Width cap for arrays inside the response. Arrays wider than this get a \`\${truncated}\` sentinel as their first item with the original \`total\` and the kept \`slice\`. Bump for wide fiber children / route stacks; lower for noisy logs.`
-      )
+      .describe('Array width cap. See server instructions § Path-based drill.')
       .meta({ default: DEFAULT_ARRAY_CAP })
       .optional(),
     depth: z
@@ -92,24 +90,20 @@ export const makeProjectionSchema = (
     objectCap: z
       .number()
       .min(1)
-      .describe(
-        `Width cap for plain objects inside the response. Objects with more keys get a \`\${truncated}\` sentinel; the rest of the keys collapse. Bump for wide prop bags / state objects.`
-      )
+      .describe('Object key cap. See server instructions § Path-based drill.')
       .meta({ default: DEFAULT_OBJECT_CAP })
       .optional(),
     path: z
       .string()
       .describe(
-        'Path drill into response (`.key`, `[N]`, `[a:b]`). `[N]` / `[a:b]` work on arrays, objects (Nth key / key slice) and strings (Nth char / substring). End the path with a slice on a string (`stack[0:500]`) to bypass previewCap — slice = explicit truncation request. See server instructions § Path-based drill for full syntax.'
+        'Path drill into response (`.key`, `[N]`, `[a:b]`). See server instructions § Path-based drill.'
       )
       .meta({ examples: ['items[0].body', 'items[0:3].id', 'errors[-1].stack[0:500]'] })
       .optional(),
     previewCap: z
       .number()
       .min(1)
-      .describe(
-        `Per-string preview length. Strings longer than this collapse to \`{"\${str}":{len,preview}}\` showing the full \`len\` and the first \`previewCap\` chars. Bump when previews are getting cut mid-content; lower when you only need to confirm a value exists.`
-      )
+      .describe('Per-string preview length. See server instructions § Path-based drill.')
       .meta({ default: DEFAULT_PREVIEW_CAP })
       .optional(),
   };

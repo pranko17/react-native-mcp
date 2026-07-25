@@ -5,8 +5,12 @@ import { canonicalize } from './helpers';
 // Same forms as the legacy `call` meta-tool accepted — literal, `/regex/flags`,
 // or a mixed array — so broadcast semantics carry over to direct registration
 // unchanged (parseClientIds handles the parsing at dispatch time).
+//
+// Deliberately terse: this string ships on every one of the ~70 catalog tools,
+// so each byte costs ~70× in the agent's context. The full semantics live once
+// in BASE_INSTRUCTIONS § clientId — keep the pointer, not the prose.
 const CLIENT_ID_DESCRIPTION =
-  'Target client ID ("ios-1"); a `/regex/` literal or an array broadcasts to every match. Auto-picks when exactly one client is connected. Full forms: server instructions § clientId.';
+  'Target client ("ios-1"); regex/array broadcasts. Omit if one client. § clientId.';
 
 const CLIENT_ID_FIELD = z
   .union([z.string(), z.array(z.string())])

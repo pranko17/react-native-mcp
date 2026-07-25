@@ -4,26 +4,23 @@ export interface AppTargetError {
   error: string;
 }
 
+// These three ship on every host tool — kept terse so the repeated text doesn't
+// dominate the catalog. Device-resolution order is documented once in
+// BASE_INSTRUCTIONS.
 export const NATIVE_ID_SCHEMA = {
   serial: z
     .string()
-    .describe(
-      'Explicit adb serial of the target Android device (e.g. "emulator-5554"). Highest priority — bypasses clientId and platform-based device selection. Use values from host__list_devices output.'
-    )
+    .describe('adb serial from host__list_devices. Overrides clientId + platform.')
     .optional(),
   udid: z
     .string()
-    .describe(
-      'Explicit simctl UDID of the target iOS simulator. Highest priority — bypasses clientId and platform-based device selection. Use values from host__list_devices output.'
-    )
+    .describe('simctl UDID from host__list_devices. Overrides clientId + platform.')
     .optional(),
 };
 
 export const PLATFORM_ARG_SCHEMA = z
   .enum(['android', 'ios'])
-  .describe(
-    "Platform filter for device resolution. Ignored when clientId is provided (the client's own platform is used instead)."
-  )
+  .describe('Platform filter. Ignored when clientId is given.')
   .optional();
 
 export const parsePlatformArg = (value: unknown): 'android' | 'ios' | undefined => {

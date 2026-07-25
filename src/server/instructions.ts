@@ -1,105 +1,93 @@
 import { MODULE_SEPARATOR } from '@/shared/protocol';
 
-export const BASE_INSTRUCTIONS = `react-native-mcp-kit bridges you to React Native dev apps on simulators, emulators, and devices. Multiple apps can connect simultaneously — each is identified by a short ID like "ios-1", "android-1", or "client-1".
+export const BASE_INSTRUCTIONS = `react-native-mcp-kit drives React Native dev apps on simulators, emulators, and devices. Each connected app has a short ID — "ios-1", "android-1", "client-1".
 
-## How to interact
+## Catalog: two layers
 
-Every tool is top-level: module tools shipped by the app (\`fiber_tree${MODULE_SEPARATOR}query\`, \`network${MODULE_SEPARATOR}get_requests\`, \`navigation${MODULE_SEPARATOR}navigate\`, ...), dynamic tools registered via \`useMcpTool\`, and host tools (\`host${MODULE_SEPARATOR}screenshot\`, \`host${MODULE_SEPARATOR}tap_fiber\`, \`metro${MODULE_SEPARATOR}reload\`, ...) are all first-class MCP tools — invoke them directly by name with their full schema visible in your catalog. No proxy layer.
+- **Host tools** (\`host${MODULE_SEPARATOR}*\`, \`metro${MODULE_SEPARATOR}*\`, \`wait_until\`, \`assert\`) — always available, no app required. They drive the device and Metro from the dev machine.
+- **App tools** (\`fiber_tree${MODULE_SEPARATOR}*\`, \`redux${MODULE_SEPARATOR}*\`, dynamic \`useMcpTool\` tools, …) — present only while their app is connected.
 
-The catalog has two layers with different lifetimes:
-  • **Host tools** (\`host${MODULE_SEPARATOR}*\`, \`metro${MODULE_SEPARATOR}*\`, \`wait_until\`, \`assert\`) — always registered, no app required. They drive the simulator / emulator / device and Metro directly from the dev machine, including when zero clients are connected.
-  • **App tools** (module tools like \`redux${MODULE_SEPARATOR}*\` / \`fiber_tree${MODULE_SEPARATOR}*\`, and dynamic \`useMcpTool\` tools) — registered only while their app client is connected. They leave the catalog when the app closes and re-register when it reconnects.
+A shrinking catalog means an app went away, never that this server died. Recover instead of retrying dead tools: \`host${MODULE_SEPARATOR}connection_status\` (a closed client sits under \`disconnected\` for ~1h) → \`host${MODULE_SEPARATOR}launch_app\` → \`wait_until\` \`clientCount\` ≥ 1.
 
-**App closed ≠ server down.** When app tools disappear from the catalog, this server is still running and every host tool still works — that shrink just means the app went away. Recover instead of retrying dead tools: \`host${MODULE_SEPARATOR}connection_status\` (the closed client sits under \`disconnected\` for ~1h) → \`host${MODULE_SEPARATOR}launch_app\` → \`wait_until\` on \`host${MODULE_SEPARATOR}connection_status\` until \`clientCount\` ≥ 1 — the app tools then reappear.
+If a client shows \`background\` / \`inactive\`, its JS may be suspended and in-app calls can hang — relaunch rather than retry. Host tools need no live socket and resolve a \`disconnected\` client by \`clientId\` for the whole grace window.
 
-1. Use \`host${MODULE_SEPARATOR}connection_status\` to check connected clients — each has a lifecycle \`status\` (\`active\` / \`background\` / \`inactive\`), plus a \`disconnected\` array of recently-closed clients (held ~1h, with \`expiresInMs\`). Not \`active\`? See "App not \`active\`?" below.
-2. Invoke tools directly. Every tool accepts an optional \`clientId\` arg — omit it with a single client connected (auto-picks); with several, omitting returns an error listing available IDs.
-3. Use \`wait_until\` to poll any tool until a predicate over its result holds (or timeout). Replaces "screenshot in a loop + sleep" for state-level waits ("wait for network to idle", "wait for state key X to become Y"). Predicate supports compound forms: { all: [...] } (AND), { any: [...] } (OR), { not: predicate }.
-4. For UI-level waits ("wait for a screen to appear", "wait for a spinner to disappear") use \`fiber_tree${MODULE_SEPARATOR}query\` with \`waitFor: { until: "appear" | "disappear", timeout?, interval?, stable? }\` — it polls the same query with cache bypassed until the target state holds. \`stable: <ms>\` requires continuous presence/absence for that many ms to ignore transient matches during screen transitions.
-5. Use \`assert\` for a single-shot checkpoint after actions — same predicate vocabulary as wait_until, returns { pass, actual, expected?, result? }. Natural pair: do action → wait_until / fiber_tree waitFor → assert.
+## \`clientId\` — routing and broadcast
 
-The tool catalog updates live: tools appear when RN clients connect (or components mount \`useMcpTool\`) and disappear on disconnect — the server emits \`notifications/tools/list_changed\`. A shrinking catalog means an app went away, never that this server died — host tools stay callable throughout. If the catalog feels stale after an app reload, re-check \`host${MODULE_SEPARATOR}connection_status\`.
+Omit \`clientId\` and it auto-picks — as long as exactly one client is connected; with several, omitting returns an error listing the available IDs. A plain string targets one client and keeps the single-client response shape. A \`/regex/flags\` literal or an array switches to broadcast: every match runs in parallel, results come back as \`{ okCount, failedCount, results: [...] }\` (image results get per-client \`## <clientId>\` headers). The pattern matches against client IDs — \`"/./"\` is everyone, \`"/^ios/"\` is iOS only. A pattern matching zero clients errors up front; an unconnected literal fails inside the envelope.
 
-### \`clientId\` — routing and broadcast
+**In \`wait_until\` / \`assert\`, \`clientId\` is an outer field** — inside \`args\` it is a hard error:
 
-Every tool's \`clientId\` accepts a string, a \`/body/flags\` regex literal, or an array (literals and regex mixed). A plain string keeps the single-client shape (image content passes through). Regex and array forms switch into broadcast mode — every matching connected client is dispatched in parallel. Same regex slash form as fiber_tree hook filters and log_box ignore patterns.
+  Wrong:  \`wait_until({ tool: "fiber_tree${MODULE_SEPARATOR}query", args: { clientId: "ios-1", steps: [...] }, predicate: ... })\`
+  Right:  \`wait_until({ clientId: "ios-1", tool: "fiber_tree${MODULE_SEPARATOR}query", args: { steps: [...] }, predicate: ... })\`
 
-  \`host${MODULE_SEPARATOR}screenshot({ clientId: ["ios-1", "android-1"] })\`   — two screenshots in one response
-  \`host${MODULE_SEPARATOR}screenshot({ clientId: "/^ios/" })\`                — broadcast to every connected iOS client
-  \`fiber_tree${MODULE_SEPARATOR}query({ clientId: "/./", steps: [{ mcpId: "checkout:button:submit" }] })\` — query every connected client
+Host tools resolve a device in this order: explicit \`udid\` / \`serial\` (from \`host${MODULE_SEPARATOR}list_devices\`) wins outright; else \`clientId\` resolves via that client's platform/label/deviceId (\`platform\` is then ignored); else the single connected client, falling back to the single booted sim / online device. \`launch_app\` / \`terminate_app\` / \`restart_app\` reuse the client's registered \`bundleId\` unless you pass \`appId\`.
 
-Broadcast result shape — text-only: \`{ okCount, failedCount, results: [{ clientId, ok, result | error }] }\`; image results: a summary text block \`Broadcast: N ok, M failed (T clients).\` precedes per-client \`## <clientId>\` headers + blocks.
+## Silence LogBox before driving the UI
 
-Regex form details:
-  • A leading \`/\` plus a trailing \`/<flags>\` switches the string into regex mode. Flags from \`[gimsuy]\`. Anything else is treated as a literal client ID.
-  • Pattern is matched against connected client IDs (\`ios-1\`, \`android-2\`, …). \`"/./"\` matches every connected client; \`"/^ios/"\` only iOS; \`"/-1$/"\` only the first client per platform.
-  • Pattern that matches zero connected clients returns an error up front — broadcasting to nobody is almost always a mistake. Literals that are unconnected still fall through to the per-client error in the broadcast envelope (matches the not-fail-fast contract).
+The LogBox overlay sits on top of the app: it swallows taps meant for the screen underneath and shows up in every screenshot. A single warning mid-run can make an otherwise correct tap sequence fail in a way that looks like a product bug.
 
-### \`wait_until\` / \`assert\` — clientId is outer, args are inner
+Open any automation run with \`log_box${MODULE_SEPARATOR}set_installed({ enabled: false })\` — the overlay stops appearing entirely. Lighter options: \`log_box${MODULE_SEPARATOR}ignore_all({ value: true })\` mutes new rows, \`log_box${MODULE_SEPARATOR}clear()\` removes what is already on screen, \`log_box${MODULE_SEPARATOR}ignore({ patterns })\` hides known-noisy warnings (substring, or \`/regex/flags\`).
 
-\`wait_until\` and \`assert\` are wrappers around another tool. Each invocation has two argument layers, never mixed:
+This costs you no visibility: warnings and errors stay readable through \`log_box${MODULE_SEPARATOR}get_logs\`, \`console${MODULE_SEPARATOR}get_logs\`, and \`errors${MODULE_SEPARATOR}get_errors\` — you just stop fighting the overlay. Re-enable with \`set_installed({ enabled: true })\` when you want to see it render.
 
-  • **Outer** — fields on the wrapper itself: \`tool\`, \`args\`, \`clientId\`, plus \`predicate\` / \`timeoutMs\` / \`intervalMs\` (wait_until), \`predicate\` / \`message\` (assert). \`clientId\` accepts the same broadcast forms as direct invocation; overall \`ok\`/\`pass\` is true only when every targeted client matches.
-  • **Inner** — what goes inside the wrapper's \`args\` object: the target tool's own args WITHOUT \`clientId\` (the wrapper resolves the client before dispatch; \`clientId\` inside \`args\` is a hard error with a remediation hint).
+## Driving the UI
 
-  Wrong:  \`wait_until({ tool: "fiber_tree${MODULE_SEPARATOR}query", args: { clientId: "ios-1", steps: [{ scope: "root" }] }, predicate: ... })\`
-  Right:  \`wait_until({ clientId: "ios-1", tool: "fiber_tree${MODULE_SEPARATOR}query", args: { steps: [{ scope: "root" }] }, predicate: ... })\`
+1. **\`host${MODULE_SEPARATOR}tap_fiber\` with \`steps: [...]\`** — the canonical user tap. Locates the fiber and taps its center through the real OS gesture pipeline, so Pressable feedback, gesture responders, and hit-testing all run. Ambiguous matches return candidates — narrow \`steps\` or add \`index\`.
+2. **\`fiber_tree${MODULE_SEPARATOR}query\` + \`host${MODULE_SEPARATOR}tap\`** when you want to inspect the match set (bounds, candidates) before committing.
+3. **\`fiber_tree${MODULE_SEPARATOR}call\`** for what a tap can't reach: \`{ prop: 'onPress' }\` invokes a callback prop, \`{ method: 'focus' }\` an imperative ref method. Use it when the target is off-screen or virtualized, when a scroll handler swallows taps, or for focus / blur / scrollTo.
+4. **\`host${MODULE_SEPARATOR}screenshot\` + coordinates + \`host${MODULE_SEPARATOR}tap\`** ONLY for surfaces with no fiber: system permission dialogs, native alerts, the keyboard, WebView content, splash screens. Pass \`region\` to crop — vision tokens are the expensive part.
 
-Some tools run inline on the MCP server host (e.g. \`host${MODULE_SEPARATOR}screenshot\`, \`host${MODULE_SEPARATOR}list_devices\`, \`host${MODULE_SEPARATOR}launch_app\`, \`host${MODULE_SEPARATOR}terminate_app\`, \`host${MODULE_SEPARATOR}restart_app\`, \`metro${MODULE_SEPARATOR}reload\`, \`metro${MODULE_SEPARATOR}symbolicate\`) and work even when no React Native client is connected. They use xcrun simctl / adb on the dev machine. When \`clientId\` is provided, host tools use that client's platform/label/deviceId as hints to resolve the target device; otherwise they prefer the device of the single connected client, falling back to the single booted sim / online device. \`launch_app\`, \`terminate_app\`, and \`restart_app\` accept an \`appId\` arg (iOS bundle ID / Android package name); omit it to reuse the target client's registered \`bundleId\` from its connection metadata. \`clientId\` resolves even a \`disconnected\` client within the ~1h reconnect window.
+Text entry goes through \`host${MODULE_SEPARATOR}type_text\` (tap the field first) — or \`host${MODULE_SEPARATOR}type_text_batch\` to fill a whole form in one call. \`host${MODULE_SEPARATOR}swipe\` / \`long_press\` / \`drag\` / \`press_key\` cover the remaining gestures; scroll a target into view with a swipe when you need the real layout, or reach it directly with \`fiber_tree${MODULE_SEPARATOR}call\` when you only need the callback to fire.
 
-## App not \`active\`? Relaunch, don't hammer
+Verify the effect, don't assume it: a navigation call can be accepted and still leave focus where it was, so check \`focusChanged\` / the resulting route rather than the call's own \`ok\`.
 
-If \`host${MODULE_SEPARATOR}connection_status\` shows a client as \`background\` / \`inactive\` (JS may be suspended → in-app calls can hang) or under \`disconnected\` (closed / crashed → in-app calls fail "not connected"; slot held ~1h), don't loop on the failing call — relaunch it. Host tools need no live socket: \`host${MODULE_SEPARATOR}launch_app\` (or \`restart_app\`) by \`clientId\` resolves even a \`disconnected\` client (or pass \`udid\` / \`serial\` from \`host${MODULE_SEPARATOR}list_devices\`); then \`wait_until\` it's \`active\` again under the same \`clientId\`.
+## Waiting and checking
 
-## Driving the UI — pick the right tool
-1. **\`host${MODULE_SEPARATOR}tap_fiber\` with \`steps: [...]\`** — the canonical way to simulate a user tap. One call locates the fiber via fiber_tree__query and taps its center through the real OS gesture pipeline, so Pressable feedback, gesture responders, and hit-test logic all run. Ambiguous matches return a candidate list so you can add \`index\` or narrow \`steps\`. This is what you want whenever the user asks to simulate a tap / press / button click.
-2. **\`fiber_tree${MODULE_SEPARATOR}query\` with \`select: ["mcpId","name","bounds"]\` + \`host${MODULE_SEPARATOR}tap\`** when you want to inspect a match set before committing — e.g. verify bounds, or skim candidates before picking one. \`props\` is opt-in on \`select\` to keep responses small.
-3. **\`fiber_tree${MODULE_SEPARATOR}call\`** for non-gesture callbacks or imperative ref methods. Pass \`prop\` to call a callback prop (\`{ prop: 'onPress' }\`) or \`method\` to call a native-ref method (\`{ method: 'focus' }\`). Good when the component is off-screen / virtualised, when a scroll-handler parent swallows taps, or when you're driving focus / blur / measure / scrollTo via the native ref. For simulating a user tap, prefer tap_fiber (above).
-4. **\`host${MODULE_SEPARATOR}screenshot\` + manual coordinate estimation + \`host${MODULE_SEPARATOR}tap\`** ONLY for non-React surfaces: system permission dialogs, native alerts, the on-screen keyboard, WebView content, native splash. These have no fiber and no bounds. Pair with \`region: { x, y, width, height }\` to screenshot just the area you're inspecting — vision-token cheap.
+- \`wait_until\` polls any tool until a predicate holds — use it for state ("network idle", "state key X is Y") instead of screenshot-in-a-loop. Predicates compose: \`{ all: [...] }\`, \`{ any: [...] }\`, \`{ not: ... }\`.
+- \`fiber_tree${MODULE_SEPARATOR}query\` with \`waitFor: { until: "appear" | "disappear", stable?: <ms> }\` is the UI-level wait. \`stable\` demands continuous presence/absence, which rides out screen transitions.
+- \`assert\` is the single-shot checkpoint after an action. The natural loop is act → wait → assert.
 
-Gesture tools: \`host${MODULE_SEPARATOR}tap\` / \`host${MODULE_SEPARATOR}long_press\` / \`host${MODULE_SEPARATOR}swipe\` / \`host${MODULE_SEPARATOR}drag\` / \`host${MODULE_SEPARATOR}type_text\` / \`host${MODULE_SEPARATOR}type_text_batch\` / \`host${MODULE_SEPARATOR}press_key\` work on both platforms with no external daemons: Android via \`adb shell input\`, iOS via a bundled \`ios-hid\` binary that injects HID events directly into iOS Simulator through SimulatorKit.
+## Network mocks
 
-Stack traces: \`errors${MODULE_SEPARATOR}get_errors\` and \`log_box${MODULE_SEPARATOR}get_logs\` return parsed \`stackFrames\` you can pass straight into \`metro${MODULE_SEPARATOR}symbolicate\` to resolve bundled frames back to source paths via Metro.
+\`network${MODULE_SEPARATOR}set_mock\` intercepts at the XHR layer, so both \`fetch\` and XMLHttpRequest are covered. Modes:
 
-## Consolidated tools — verb + arg, not verb-per-action
+- \`replace\` — synthesize status/headers/body; the request never leaves the app.
+- \`modify\` — the real request runs, then you patch it. \`bodyMergePatch\` is RFC 7396 (deep merge, \`null\` deletes a key); \`bodyJsonPatch\` is RFC 6902 for array surgery, applied after the merge patch.
+- \`error\` / \`timeout\` — simulate failure. \`delayMs\` applies to replace/error/timeout.
 
-Every module exposes one verb per concept rather than one tool per variant. Reach for the listing tool with a filter arg, not a tool named after the filter:
+Matching is **first-match-wins in insertion order**. \`url\` is a substring or \`/regex/\`; \`method\`, \`times\` (consumed per hit), \`bodyContains\` (substring or \`/regex/\` over the raw body) and \`bodyMatch\` narrow further. \`bodyMatch\` takes dot-paths into the parsed JSON body and **ANDs every entry** — the way to separate requests that share a URL and differ only in payload:
 
-- **console** — \`get_logs({ level? })\` for all levels (no per-level shortcuts).
-- **errors** — \`get_errors({ fatal? })\` covers fatal-only too.
-- **network** — \`get_requests({ status?, method?, url? })\` covers errors / pending / URL filter.
-- **log_box** — \`clear({ level? })\` (warn / error / syntax / all); \`set_installed({ enabled })\` toggles install/uninstall.
-- **navigation** — \`navigate({ mode: 'reuse' | 'push' | 'replace' })\` covers navigate/push/replace; \`pop({ to: <number> | <screenName> | 'top' })\` covers pop / pop_to / pop_to_top; \`get_current_route({ withState? })\` covers the route-state read too.
-- **query** (reactQuery) — \`mutate({ action: 'invalidate' | 'refetch' | 'remove' | 'reset', key? })\` covers all four cache mutations.
-- **device** — \`info({ select?: [...] })\` aggregates platform / dimensions / pixelRatio / appearance / appState / accessibility / keyboard / initialUrl / dev / identity / app / battery / memoryStorage. \`open_url({ dryRun? })\` covers the canOpenURL check too.
-- **fiber_tree** — \`query\` (all inspection: mcpId / name / testID / props / hooks / bounds / refMethods / children) and \`call({ prop? | method? })\` (callback prop OR native-ref method) — two tools cover everything fibers offer.
+  \`bodyMatch: { "data.type": "courier", "data.items.length": 3 }\`
+
+Mocks are volatile — a JS reload drops them. Every affected buffer entry carries \`mock: { id, mode, originalStatus? }\`, so captured traffic never lies about being fake. Mocked JSON survives in React Query caches after \`clear_mocks\` — invalidate through the \`query\` module when a screen must stop showing it.
+
+## One verb per concept
+
+Modules expose a verb plus arguments, never a tool per variant — reach for the listing tool with a filter, not a tool named after the filter. \`console${MODULE_SEPARATOR}get_logs({ level })\`, \`network${MODULE_SEPARATOR}get_requests({ status, method, url })\`, \`navigation${MODULE_SEPARATOR}navigate({ mode })\` and \`pop({ to })\`, \`query${MODULE_SEPARATOR}mutate({ action })\`, \`device${MODULE_SEPARATOR}info({ select })\`. If a tool you expect is missing, it is an argument on a broader one.
+
+\`errors${MODULE_SEPARATOR}get_errors\` and \`log_box${MODULE_SEPARATOR}get_logs\` return parsed \`stackFrames\` that go straight into \`metro${MODULE_SEPARATOR}symbolicate\` to map bundled frames back to source.
+
+Sensitive values are redacted at capture time — auth headers, and body/hook keys like password, token, secret, apiKey. A redacted field is not a missing one.
 
 ## Path-based drill into heavy responses
 
-All listing tools that return heavy JSON (console / network / errors / storage / reactQuery / log_box / navigation / metro events / fiber_tree) accept the standard \`path\` / \`depth\` / \`maxBytes\` projection args. Heavy nested values collapse to compact \`\${...}\`-keyed markers; primitives stay raw. Drill into a specific subtree via the same tool with \`path\` — no separate by-id fetcher.
+Every listing tool takes \`path\` / \`depth\` / \`maxBytes\` / \`arrayCap\` / \`objectCap\` / \`previewCap\`. Heavy nested values collapse into \`\${...}\` markers while primitives stay raw; drill with \`path\` on the same tool rather than looking for a by-id fetcher.
 
-  \`network__get_requests({ path: '[-1:][0].response.body' })\`         — last request's body
-  \`network__get_requests({ path: '[-1:][0].response.body', depth: 8 })\` — fully expanded
-  \`console__get_logs({ path: '[-3:][0].args[1]' })\`                    — second arg of the third-from-last log
-  \`storage__get_item({ key: 'session', path: 'value.user.email' })\`    — drill into a stored value
-  \`query__get_data({ key: '["users"]', path: 'data.email' })\`         — drill into cached data
+  \`network${MODULE_SEPARATOR}get_requests({ path: '[-1:][0].response.body' })\`   — last request's body
+  \`console${MODULE_SEPARATOR}get_logs({ path: '[-3:][0].args[1]' })\`             — second arg of the third-from-last log
+  \`storage${MODULE_SEPARATOR}get_item({ key: 'session', path: 'value.user.email' })\`
 
 Path syntax (JS-style):
   \`.key\` or \`["key.with.dots"]\` — object key access
-  \`[N]\` — index (numeric for arrays, Nth char for strings, Nth key in insertion order for objects)
-  \`[start:end]\` / \`[start:]\` / \`[:end]\` — slice (Python/jq-style; negative indices count from end). Works on arrays, strings, and objects (key slice). After array slice, chained \`.key\` maps over each element; \`[N]\` picks one.
+  \`[N]\` — index: array element, Nth char of a string, Nth key of an object
+  \`[start:end]\` / \`[start:]\` / \`[:end]\` — slice, negative indices count from the end. Works on arrays, strings and objects. After an array slice, a chained \`.key\` maps over elements; \`[N]\` picks one.
 
-Path drilling to a string scalar applies \`previewCap\` as usual — long leaves still wrap in a \`\${str}\` marker. To get a raw substring, end the path with a slice: \`stack[0:500]\` returns the first 500 chars verbatim (slice = explicit truncation request, previewCap bypassed). Default \`previewCap\` is 250; override per call via \`previewCap: <N>\`.
+Knobs: \`depth\` (max 8) is how many container levels expand before collapsing; \`maxBytes\` (50KB) caps the whole response; \`arrayCap\` (50) and \`objectCap\` (30) trim containers that are too *wide*, inserting a \`\${truncated}\` marker with the original \`total\`; \`previewCap\` (250) is the per-string preview length. Ending a path with a slice on a string (\`stack[0:500]\`) returns raw text and bypasses \`previewCap\`.
 
-\`depth\` (default per tool, max 8) controls how many container levels are walked before collapsing to a marker. Bump \`depth\` for an exploratory survey, use \`path\` for a targeted drill. \`maxBytes\` (default 50KB) caps the total response size — overflow is replaced with a single \`\${str}\` marker carrying the original byte count + a preview.
+For \`fiber_tree${MODULE_SEPARATOR}query\`, heavy fields take these knobs per-field through \`select\`, so the rest of the response stays raw:
+  \`select: [{ props: { path: "style", depth: 2 } }]\`
+  \`select: [{ hooks: { kinds: ["State"], names: ["isLoading"], withValues: true } }]\`  — \`names\` accepts \`/regex/flags\`; \`format: "tree"\` nests custom-hook children instead of flat \`via\` chains
+  \`select: [{ children: 5 }]\`  — light-only tree walker; pair with \`scope: "root"\` on the first step to dump the whole tree. props/hooks are rejected inside it; sub-children past the depth surface as \`\${arr}: N\`.
 
-For \`fiber_tree__query\`, heavy fields (\`props\`, \`hooks\`) take projection knobs per-field via \`select\` so the rest of the response stays raw:
-  \`select: [{ props: { path: "style", depth: 2 } }]\`   — drill into props.style 2 levels deep
-  \`select: [{ props: { path: "data[0:5]" } }]\`         — slice path: take first 5 items of props.data
-  \`select: [{ hooks: { kinds: ["State"], names: ["isLoading"], withValues: true, depth: 2 } }]\` — filter + project hook values
-  \`select: [{ children: 5 }]\`                          — light-only recursive tree walker (5 levels deep); use \`scope: "root"\` as the first step to dump the whole tree. props/hooks not supported inside; sub-children past treeDepth surface as \`\${arr}: N\`.
-
-Hook filters: \`kinds\` (State/Effect/Memo/Ref/Custom/...), \`names\` (exact or \`/regex/flags\`), \`withValues\` (adds resolved values), \`expansionDepth\` (caps custom-hook recursion), \`format: "tree"\` (nested children vs flat \`via\` chains). Each hook entry carries \`{ kind, name, hook?, via?, expanded? }\`. Sensitive names (password, token, jwt, secret, credential, apiKey, authorization, Pin suffix) are auto-redacted; configure via \`fiberTreeModule({ redactHookNames, additionalRedactHookNames })\`.
-
-Marker format: \`{ "\${obj}": N }\` for collapsed objects (N keys), \`{ "\${arr}": N }\` for arrays (N items), \`{ "\${fun}": "name" }\` for functions, \`{ "\${str}": { len, preview } }\` for long strings (>\`previewCap\`, default 250), \`{ "\${Date}": "iso" }\` for Date, \`{ "\${Err}": { name, msg } }\` for Error, \`{ "\${RegExp}": "/.../i" }\` for RegExp, \`{ "\${map}": N }\` / \`{ "\${set}": N }\` for Map/Set sizes, \`{ "\${cyc}": true }\` for cycles, \`{ "\${ref}": { mcpId, name } }\` for fiber/native refs, \`{ "\${cls}": { name, len } }\` for class instances, \`{ "\${truncated}": { total, slice } }\` first key/item when a container is wider than the cap (30 keys for objects, 50 items for arrays).
+Markers: \`\${obj}\` / \`\${arr}\` / \`\${map}\` / \`\${set}\` carry a size, \`\${str}\` carries \`{ len, preview }\`, \`\${fun}\` a name, \`\${ref}\` \`{ mcpId, name }\` for a fiber or native ref, \`\${cls}\` a class instance, \`\${cyc}\` a cycle, \`\${truncated}\` \`{ total, slice }\` for a width-capped container, plus \`\${Date}\` / \`\${Err}\` / \`\${RegExp}\`.
 `;

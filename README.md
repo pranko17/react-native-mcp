@@ -237,6 +237,36 @@ Both hooks follow `useMemo` / `useEffect` semantics: the factory re-runs on dep 
 useMcpTool('get_current_draft', draft ? () => draftTool(draft) : null, [draft]);
 ```
 
+### Projecting heavy payloads
+
+A tool that returns a cart, a state tree or a list of network calls will bury the agent's context in
+JSON it never asked for. Every built-in module funnels its result through one primitive first —
+import it for your own tools so their output speaks the same conventions:
+
+```ts
+import { applyProjection, makeProjectionSchema, projectAsValue } from 'react-native-mcp-kit/projection';
+import { z } from 'zod';
+
+const DEFAULT_DEPTH = 2;
+
+const cartModule = (cart: CartApi): McpModule => ({
+  name: 'cart',
+  tools: {
+    get_cart: {
+      description: 'Current cart with its items and totals.',
+      // `path` / `depth` / `maxBytes` / `arrayCap` … — the same args every kit tool takes.
+      handler: (args) => applyProjection(cart.snapshot(), args, projectAsValue, DEFAULT_DEPTH),
+      inputSchema: z.looseObject(makeProjectionSchema(DEFAULT_DEPTH)),
+    },
+  },
+});
+```
+
+Containers are walked to the depth budget, wide ones are width-capped, long strings become previews,
+and whatever is cut leaves a sentinel marker behind (`${truncated}`, `${str}`, `${obj}`, `${cyc}`) —
+so the agent can tell "this is all of it" from "there is more here, ask for it with `path`". Reach
+for `projectValue` directly when you want the `{ bytes, truncated, value }` envelope instead.
+
 `inputSchema` is a Zod schema (serialized to JSON Schema for the wire). Two habits pay off: use `z.looseObject` so undeclared args still reach your handler, and advertise defaults with `.meta({ default })` rather than `.default()` — the schema guides the agent, your handler stays the source of truth. Write descriptions that name the *task* ("snapshot of the draft open in the editor"), not the implementation — that's what the agent's semantic tool search matches against.
 
 ## Testing your app

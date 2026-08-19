@@ -1,6 +1,6 @@
 {
   "name": "react-native-mcp-kit",
-  "version": "5.4.1",
+  "version": "5.5.0",
   "description": "MCP server for React Native — drive, inspect, and debug running RN apps from AI agents via the real OS gesture pipeline",
   "license": "MIT",
   "author": "Aliaksei Pranko",
@@ -56,6 +56,7 @@
     ".": "./dist/index.js",
     "./client": "./dist/client/index.js",
     "./modules": "./dist/modules/index.js",
+    "./projection": "./dist/shared/projection/index.js",
     "./babel": "./dist/babel/index.js",
     "./babel/test-id-plugin": "./dist/babel/testIdPlugin/index.js",
     "./babel/strip-plugin": "./dist/babel/stripPlugin.js",
